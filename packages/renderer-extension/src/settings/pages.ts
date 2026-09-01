@@ -21,6 +21,7 @@ import {
   createConnectionsSettingsPage,
   type RendererConnectionDiagnostics,
 } from "./connections-page.js";
+import { createAgentsSettingsPage } from "./agents-page.js";
 import { createReleaseNotesElement } from "./release-notes.js";
 
 export type {
@@ -63,7 +64,7 @@ function windowsInstallerDownloadUrl(window: Window | null | undefined, version:
   return `https://github.com/BytePioneer-AI/codex-host/releases/download/v${version}/codexhost-${version}-windows-${architecture}.exe`;
 }
 
-export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = ["connections", "updates", "about"] as const;
+export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = ["connections", "agents", "updates", "about"] as const;
 
 export type DefaultRendererSettingsPageId = (typeof DEFAULT_RENDERER_SETTINGS_PAGE_IDS)[number];
 
@@ -569,6 +570,7 @@ export function createDefaultRendererSettingsPages(
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createConnectionsSettingsPage(messages, getDiagnostics),
+    createAgentsSettingsPage(messages),
     updatesPage(messages, getUpdateClient),
     aboutPage(messages),
   ]);

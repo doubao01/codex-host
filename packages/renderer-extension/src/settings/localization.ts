@@ -121,6 +121,8 @@ export interface RendererSettingsMessages {
   readonly aboutOpenSource: string;
   readonly aboutStarCallout: string;
   readonly aboutRepository: string;
+  readonly agentsDescription: string;
+  readonly agentsReset: string;
   readonly pageLabels: Readonly<Record<DefaultRendererSettingsPageId, string>>;
 }
 
@@ -240,8 +242,12 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   aboutOpenSource: "codexhost is an open-source project. The source code is available at:",
   aboutStarCallout: "⭐ If this project helps you, please give us a Star! ⭐",
   aboutRepository: "Open-source repository",
+  agentsDescription:
+    "Choose which agents appear in the agent picker. Codex is always available.",
+  agentsReset: "Reset to Default",
   pageLabels: Object.freeze({
     connections: "Connections",
+    agents: "Agents",
     updates: "Updates",
     about: "About",
   }),
@@ -360,8 +366,11 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   aboutOpenSource: "codexhost 是一个开源项目，开源地址：",
   aboutStarCallout: "⭐ 如果这个项目对你有帮助，请给我们一个 Star！⭐",
   aboutRepository: "开源仓库",
+  agentsDescription: "选择在代理选择器中显示哪些代理。Codex 始终可用。",
+  agentsReset: "恢复默认",
   pageLabels: Object.freeze({
     connections: "连接",
+    agents: "代理",
     updates: "更新",
     about: "关于",
   }),

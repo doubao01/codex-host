@@ -57,6 +57,10 @@ import type { RendererModelClient } from "./renderer-model-client.js";
 import { thinkingOptionsForModel } from "./renderer-model-picker.js";
 import { RENDERER_AGENT_INSTALL_URLS } from "./renderer-agent-picker.js";
 import {
+  getSharedAgentVisibilityStore,
+  type AgentVisibilityStore,
+} from "./agent-visibility-store.js";
+import {
   readClaudePermissionModePreference,
   writeClaudePermissionModePreference,
 } from "./renderer-permission-mode-preference.js";
@@ -511,10 +515,16 @@ export function installRendererBindingProbe(
   const existing = window.__codexhostRendererBindingProbeV1;
   if (existing) return existing;
 
-  const enabledAgents = [...new Set(options.enabledAgents ?? DEFAULT_RENDERER_AGENTS)];
+  const allEnabledAgents = [...new Set(options.enabledAgents ?? DEFAULT_RENDERER_AGENTS)];
+  const visibilityStore: AgentVisibilityStore = getSharedAgentVisibilityStore();
+  const visibleEnabledAgents = (): RendererAgent[] =>
+    allEnabledAgents.filter(
+      (agent) => agent === "codex" || visibilityStore.isVisible(agent as ExternalRendererAgent),
+    );
+  let enabledAgents = visibleEnabledAgents();
   const enabledAgentSet = new Set(enabledAgents);
   const controller = new DraftAgentController<Element>({
-    enabledAgents,
+    enabledAgents: allEnabledAgents,
     ...(options.defaultAgent ? { defaultAgent: options.defaultAgent } : {}),
   });
   const mountedByComposer = new Map<Element, MountedComposer>();
@@ -2264,6 +2274,17 @@ export function installRendererBindingProbe(
   window.addEventListener("codexhost:renderer-adapter-status", onAdapterStatus);
   window.addEventListener("focus", onWindowFocus);
 
+  const unsubscribeVisibility = visibilityStore.subscribe(() => {
+    enabledAgents = visibleEnabledAgents();
+    enabledAgentSet.clear();
+    for (const agent of enabledAgents) enabledAgentSet.add(agent);
+    for (const mounted of mountedByComposer.values()) {
+      disposeComposerAgentControl(mounted.control);
+    }
+    mountedByComposer.clear();
+    scheduleScan();
+  });
+
   const connectedComposers = (): MountedComposer[] =>
     [...mountedByComposer.values()].filter(
       (mounted) => mounted.composer.isConnected && mounted.control.root.isConnected,
@@ -2375,6 +2396,7 @@ export function installRendererBindingProbe(
       mutationObserver.disconnect();
       sidebarAgentIcons.dispose();
       settingsLifecycle.dispose();
+      unsubscribeVisibility();
       document.removeEventListener("beforeinput", onBeforeInput, true);
       document.removeEventListener("submit", onSubmit, true);
       document.removeEventListener("keydown", onKeyDown, true);
