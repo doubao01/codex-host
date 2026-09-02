@@ -1,16 +1,18 @@
 import {
-  modelProviderProtocols,
+  defaultModelProviderPath,
+  modelProviderWireFormats,
   type ModelGatewayStatusResult,
   type ModelPoolEntry,
   type ModelPoolEntryAddParams,
   type ModelPoolEntryRemoveParams,
   type ModelProviderConfig,
   type ModelProviderFetchModelsResult,
+  type ModelProviderHeader,
   type ModelProviderId,
   type ModelProviderListResult,
-  type ModelProviderProtocol,
   type ModelProviderSaveParams,
   type ModelProviderTestResult,
+  type ModelProviderWireFormat,
 } from "@codexhost/shared-contracts";
 
 import type { RendererSettingsPageDefinition, RendererSettingsPageMountContext } from "./core.js";
@@ -29,28 +31,46 @@ export interface RendererModelProviderClient {
   readModelGatewayStatus(): Promise<ModelGatewayStatusResult>;
 }
 
-const MODEL_PROVIDER_PROTOCOL_LABELS: Readonly<Record<ModelProviderProtocol, string>> =
-  Object.freeze({
-    openai: "OpenAI",
-    anthropic: "Anthropic",
-    ollama: "Ollama",
-    lmstudio: "LM Studio",
-  });
-
 const MODEL_PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/u;
 
-function providerDescription(
-  protocol: ModelProviderProtocol,
+/** Sentinel used while the inline form is adding a brand-new source. */
+const ADD_PROVIDER_KEY = "__new__";
+
+function wireFormatLabel(
+  wireFormat: ModelProviderWireFormat,
   messages: RendererSettingsMessages,
 ): string {
-  if (protocol === "openai") return messages.modelServicesProtocolOpenAiDescription;
-  if (protocol === "anthropic") return messages.modelServicesProtocolAnthropicDescription;
-  if (protocol === "ollama") return messages.modelServicesProtocolOllamaDescription;
-  return messages.modelServicesProtocolLmstudioDescription;
+  if (wireFormat === "openai-chat") return messages.modelServicesWireFormatOpenAiChat;
+  if (wireFormat === "openai-responses") return messages.modelServicesWireFormatOpenAiResponses;
+  return messages.modelServicesWireFormatAnthropic;
+}
+
+function fullUrl(baseUrl: string, path: string): string {
+  return `${baseUrl.replace(/\/+$/u, "")}${path}`;
 }
 
 function poolKey(entry: Pick<ModelPoolEntry, "modelId" | "providerId">): string {
   return `${entry.providerId}/${entry.modelId}`;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+}
+
+/** Derives a lowercase-slug ID from the source remark; no ID field is exposed. */
+function generateProviderId(name: string, existing: Iterable<string>): ModelProviderId {
+  const taken = new Set(existing);
+  const base = slugify(name) || "provider";
+  let candidate = base;
+  let suffix = 2;
+  while (taken.has(candidate) || !MODEL_PROVIDER_ID_PATTERN.test(candidate)) {
+    candidate = `${base.slice(0, 56)}-${suffix++}`;
+  }
+  return candidate as ModelProviderId;
 }
 
 function createButton(
@@ -64,6 +84,21 @@ function createButton(
   button.className = className;
   button.append(createRendererSettingsIcon(icon, 14), label);
   return button;
+}
+
+type HeaderRow = { name: string; value: string; storedValue: boolean };
+
+/** Live state behind the single expanded inline form. Rebuilt on render. */
+interface ExpandedFormState {
+  /** Null while adding a brand-new source; set once the source is persisted. */
+  providerId: ModelProviderId | null;
+  wireFormat: ModelProviderWireFormat;
+  baseUrl: string;
+  path: string;
+  apiKey: string;
+  name: string;
+  headers: HeaderRow[];
+  clearedHeaders: Set<string>;
 }
 
 export function createModelServicesSettingsPage(
@@ -102,84 +137,18 @@ export function createModelServicesSettingsPage(
       gatewayBody.className = "settings-model-gateway-body";
       gatewayPanel.append(gatewayTitle, gatewayBody);
 
+      const sourceList = document.createElement("section");
+      sourceList.className = "settings-model-source-list";
+
       const errorNote = document.createElement("p");
       errorNote.className = "settings-model-services-error";
       errorNote.setAttribute("aria-live", "polite");
 
-      // Add / edit form. Shared across every protocol section; the protocol is
-      // only selectable while adding a brand-new source.
-      const form = document.createElement("form");
-      form.className = "settings-model-provider-form";
-      form.hidden = true;
-      const formTitle = document.createElement("strong");
-      formTitle.textContent = messages.modelServicesAddProvider;
-      const idField = document.createElement("label");
-      idField.textContent = messages.modelServicesProviderId;
-      const idInput = document.createElement("input");
-      idInput.type = "text";
-      idInput.autocomplete = "off";
-      idInput.spellcheck = false;
-      idInput.placeholder = "my-gateway";
-      idField.append(idInput);
-      const nameField = document.createElement("label");
-      nameField.textContent = messages.modelServicesProviderName;
-      const nameInput = document.createElement("input");
-      nameInput.type = "text";
-      nameField.append(nameInput);
-      const baseUrlField = document.createElement("label");
-      baseUrlField.textContent = messages.modelServicesProviderBaseUrl;
-      const baseUrlInput = document.createElement("input");
-      baseUrlInput.type = "url";
-      baseUrlInput.placeholder = "https://api.example.com/v1";
-      baseUrlField.append(baseUrlInput);
-      const protocolField = document.createElement("label");
-      protocolField.textContent = messages.modelServicesProviderProtocol;
-      const protocolInput = document.createElement("select");
-      for (const protocol of modelProviderProtocols) {
-        const option = document.createElement("option");
-        option.value = protocol;
-        option.textContent = MODEL_PROVIDER_PROTOCOL_LABELS[protocol];
-        protocolInput.append(option);
-      }
-      protocolField.append(protocolInput);
-      const apiKeyField = document.createElement("label");
-      apiKeyField.textContent = messages.modelServicesProviderApiKey;
-      const apiKeyInput = document.createElement("input");
-      apiKeyInput.type = "password";
-      apiKeyInput.autocomplete = "off";
-      apiKeyInput.placeholder = messages.modelServicesProviderApiKeyHint;
-      apiKeyField.append(apiKeyInput);
-      const formStatus = document.createElement("span");
-      formStatus.className = "settings-model-provider-form-status";
-      const actions = document.createElement("div");
-      actions.className = "settings-model-provider-form-actions";
-      const saveButton = createButton(
-        document,
-        "settings-command-button",
-        messages.modelServicesSave,
-        "check",
-      );
-      const cancelButton = createButton(
-        document,
-        "settings-command-button settings-command-button--secondary",
-        messages.modelServicesCancel,
-        "close",
-      );
-      actions.append(saveButton, cancelButton);
-      form.append(
-        formTitle,
-        idField,
-        nameField,
-        baseUrlField,
-        protocolField,
-        apiKeyField,
-        formStatus,
-        actions,
-      );
-      context.content.append(gatewayPanel, errorNote, form);
+      context.content.append(gatewayPanel, errorNote, sourceList);
 
       let latest: ModelProviderListResult | null = null;
       let gatewayStatus: ModelGatewayStatusResult | null = null;
+      let formState: ExpandedFormState | null = null;
       const fetchedModels = new Map<string, ModelProviderFetchModelsResult["models"]>();
       const testResults = new Map<string, ModelProviderTestResult>();
       const pending = new Set<string>();
@@ -197,6 +166,84 @@ export function createModelServicesSettingsPage(
             failure?.(error);
           },
         });
+      };
+
+      const fetchModelsFor = (providerId: ModelProviderId): void => {
+        pending.clear();
+        pending.add(providerId);
+        runRequest(
+          () => client.fetchModelProviderModels(providerId),
+          (result) => {
+            fetchedModels.set(providerId, result.models);
+            pending.delete(providerId);
+            render(latest);
+          },
+          () => pending.delete(providerId),
+        );
+      };
+
+      const buildHeadersPayload = (form: ExpandedFormState): ModelProviderHeader[] => {
+        const headers: ModelProviderHeader[] = [];
+        for (const row of form.headers) {
+          const name = row.name.trim();
+          if (name.length === 0) continue;
+          const value = row.value.trim();
+          if (value.length > 0) headers.push({ name, value });
+          else if (row.storedValue) headers.push({ name }); // keep the stored value
+        }
+        for (const name of form.clearedHeaders) {
+          if (name.length > 0) headers.push({ name, value: "" }); // clear the stored value
+        }
+        return headers;
+      };
+
+      const submitForm = (opts: {
+        formStatus: HTMLElement;
+        keepOpen: boolean;
+        onSaved?: (id: ModelProviderId) => void;
+      }): void => {
+        if (!formState) return;
+        const form = formState;
+        const name = form.name.trim();
+        const baseUrl = form.baseUrl.trim();
+        const path = form.path.trim();
+        if (name.length === 0 || baseUrl.length === 0) {
+          opts.formStatus.textContent = messages.modelServicesSaveFailed;
+          return;
+        }
+        if (path.length > 0 && !path.startsWith("/")) {
+          opts.formStatus.textContent = messages.modelServicesInvalidPath;
+          return;
+        }
+        const id =
+          form.providerId ??
+          generateProviderId(name, latest?.providers.map((provider) => provider.id) ?? []);
+        const headers = buildHeadersPayload(form);
+        opts.formStatus.textContent = "";
+        runRequest(
+          () =>
+            client.saveModelProvider({
+              id,
+              name,
+              wireFormat: form.wireFormat,
+              baseUrl,
+              ...(path.length > 0 ? { path } : {}),
+              ...(form.apiKey.length > 0 ? { apiKey: form.apiKey } : {}),
+              ...(headers.length > 0 ? { headers } : {}),
+            }),
+          (result) => {
+            latest = result;
+            if (opts.keepOpen) {
+              form.providerId = id;
+              form.apiKey = "";
+              render(result);
+              opts.onSaved?.(id);
+            } else {
+              formState = null;
+              render(result);
+            }
+          },
+        );
       };
 
       const renderGateway = (result: ModelProviderListResult): void => {
@@ -228,8 +275,8 @@ export function createModelServicesSettingsPage(
           for (const route of defaultRoutes) {
             const item = document.createElement("span");
             item.className = "settings-model-gateway-route";
-            item.dataset.modelDefaultRoute = route.protocol;
-            item.textContent = `${MODEL_PROVIDER_PROTOCOL_LABELS[route.protocol]}: ${route.providerId}`;
+            item.dataset.modelDefaultRoute = route.wireFormat;
+            item.textContent = `${wireFormatLabel(route.wireFormat, messages)}: ${route.providerId}`;
             routesList.append(item);
           }
         }
@@ -242,100 +289,60 @@ export function createModelServicesSettingsPage(
         gatewayBody.append(note);
       };
 
-      const openForm = (
-        provider: ModelProviderConfig | null,
-        protocol: ModelProviderProtocol,
-      ): void => {
-        form.hidden = false;
-        formStatus.textContent = "";
-        formTitle.textContent = provider
-          ? messages.modelServicesEditProvider
-          : messages.modelServicesAddProvider;
-        idInput.value = provider?.id ?? "";
-        idInput.disabled = provider !== null;
-        protocolInput.value = provider?.protocol ?? protocol;
-        protocolInput.disabled = provider !== null;
-        nameInput.value = provider?.name ?? "";
-        baseUrlInput.value = provider?.baseUrl ?? "";
-        apiKeyInput.value = "";
-        idInput.focus();
-      };
-
-      const closeForm = (): void => {
-        form.hidden = true;
-      };
-
-      const renderPool = (container: HTMLElement, pool: readonly ModelPoolEntry[]): void => {
-        container.replaceChildren();
-        if (pool.length === 0) {
-          const empty = document.createElement("p");
-          empty.className = "settings-model-pool-empty";
-          empty.textContent = messages.modelServicesPoolEmpty;
-          container.append(empty);
-          return;
-        }
-        const poolTitle = document.createElement("strong");
-        poolTitle.textContent = messages.modelServicesPoolTitle;
-        container.append(poolTitle);
-        for (const entry of pool) {
-          const row = document.createElement("div");
-          row.className = "settings-model-pool-entry";
-          row.dataset.modelPoolEntry = poolKey(entry);
-          const model = document.createElement("strong");
-          model.textContent = entry.label ?? entry.modelId;
-          const modelId = document.createElement("code");
-          modelId.textContent = entry.modelId;
-          const provider = document.createElement("span");
-          provider.textContent = entry.providerId;
-          const remove = createButton(
-            document,
-            "settings-model-pool-remove",
-            messages.modelServicesCandidateRemove,
-            "close",
-          );
-          remove.setAttribute(
-            "aria-label",
-            `${messages.modelServicesCandidateRemove} ${entry.modelId}`,
-          );
-          remove.addEventListener("click", () => {
-            runRequest(
-              () =>
-                client.removeModelPoolEntry({
-                  modelId: entry.modelId,
-                  providerId: entry.providerId,
-                }),
-              (result) => {
-                latest = result;
-                render(result);
-              },
-            );
-          });
-          row.append(model, modelId, provider, remove);
-          container.append(row);
-        }
-      };
-
       const renderProviderCard = (
         provider: ModelProviderConfig,
-        poolEntries: readonly ModelPoolEntry[],
+        pool: readonly ModelPoolEntry[],
       ): HTMLElement => {
         const card = document.createElement("div");
         card.className = "settings-model-provider-card";
         card.dataset.modelProviderCard = provider.id;
+        const expanded = formState !== null && formState.providerId === provider.id;
+        if (expanded) card.dataset.modelProviderExpand = provider.id;
+
         const identity = document.createElement("div");
         identity.className = "settings-model-provider-card__identity";
+        const badge = document.createElement("span");
+        badge.className = "settings-model-wire-format-badge";
+        badge.dataset.modelProviderWireFormat = provider.id;
+        badge.textContent = wireFormatLabel(provider.wireFormat, messages);
         const name = document.createElement("strong");
         name.dataset.modelProviderName = provider.id;
         name.textContent = provider.name;
+        identity.append(badge, name);
+
+        const endpoint = document.createElement("div");
+        endpoint.className = "settings-model-provider-card__endpoint";
         const baseUrl = document.createElement("code");
         baseUrl.dataset.modelProviderBaseUrl = provider.id;
         baseUrl.textContent = provider.baseUrl;
+        const pathPreview = document.createElement("code");
+        pathPreview.className = "settings-model-provider-card__path";
+        pathPreview.dataset.modelProviderPath = provider.id;
+        pathPreview.textContent = provider.path ?? defaultModelProviderPath(provider.wireFormat);
+        endpoint.append(baseUrl, pathPreview);
+
+        const meta = document.createElement("div");
+        meta.className = "settings-model-provider-card__meta";
         const apiKeyStatus = document.createElement("span");
         apiKeyStatus.dataset.modelProviderApiKeyStatus = provider.id;
         apiKeyStatus.textContent = provider.hasApiKey
           ? messages.modelServicesProviderApiKeySaved
           : messages.modelServicesProviderApiKeyMissing;
-        identity.append(name, baseUrl, apiKeyStatus);
+        meta.append(apiKeyStatus);
+        const storedHeaders = provider.headers?.filter((header) => header.hasValue) ?? [];
+        if (storedHeaders.length > 0) {
+          const headersBadge = document.createElement("span");
+          headersBadge.dataset.modelProviderHeaders = provider.id;
+          headersBadge.textContent = `${storedHeaders.length} ${messages.modelServicesHeaders}`;
+          meta.append(headersBadge);
+        }
+        const modelCount = pool.filter((entry) => entry.providerId === provider.id).length;
+        if (modelCount > 0) {
+          const countBadge = document.createElement("span");
+          countBadge.dataset.modelProviderModelCount = provider.id;
+          countBadge.textContent = `${modelCount} ${messages.modelServicesModelsTitle}`;
+          meta.append(countBadge);
+        }
 
         const controls = document.createElement("div");
         controls.className = "settings-model-provider-card__controls";
@@ -348,19 +355,9 @@ export function createModelServicesSettingsPage(
         );
         fetchButton.disabled = busy;
         fetchButton.addEventListener("click", () => {
-          // runLatest replaces the previous in-flight request, so any prior
-          // pending provider is no longer busy once this one is dispatched.
-          pending.clear();
-          pending.add(provider.id);
-          runRequest(
-            () => client.fetchModelProviderModels(provider.id),
-            (result) => {
-              fetchedModels.set(provider.id, result.models);
-              pending.delete(provider.id);
-              render(latest);
-            },
-            () => pending.delete(provider.id),
-          );
+          // Expand the card so the fetched candidates show in the model section.
+          openForm(provider);
+          fetchModelsFor(provider.id);
         });
         const testButton = createButton(
           document,
@@ -388,7 +385,7 @@ export function createModelServicesSettingsPage(
           messages.modelServicesEditProvider,
           "undo",
         );
-        editButton.addEventListener("click", () => openForm(provider, provider.protocol));
+        editButton.addEventListener("click", () => openForm(provider));
         const removeButton = createButton(
           document,
           "settings-model-provider-remove",
@@ -400,6 +397,7 @@ export function createModelServicesSettingsPage(
           `${messages.modelServicesRemoveProvider} ${provider.name}`,
         );
         removeButton.addEventListener("click", () => {
+          if (formState?.providerId === provider.id) formState = null;
           runRequest(
             () => client.removeModelProvider(provider.id),
             (result) => {
@@ -429,63 +427,81 @@ export function createModelServicesSettingsPage(
           }
         }
 
-        const candidates = document.createElement("div");
-        candidates.className = "settings-model-provider-candidates";
-        const fetched = fetchedModels.get(provider.id);
-        if (fetched !== undefined) {
-          if (fetched.length === 0) {
-            const none = document.createElement("p");
-            none.textContent = messages.modelServicesNoModels;
-            candidates.append(none);
-          } else {
-            const hint = document.createElement("p");
-            hint.textContent = `${messages.modelServicesModelsFetched} ${fetched.length}`;
-            candidates.append(hint);
-            for (const model of fetched) {
-              const inPool = poolEntries.some((entry) => entry.modelId === model.id);
-              const row = document.createElement("label");
-              row.className = "settings-model-provider-candidate";
-              row.dataset.modelCandidate = `${provider.id}/${model.id}`;
-              const checkbox = document.createElement("input");
-              checkbox.type = "checkbox";
-              checkbox.checked = inPool;
-              checkbox.addEventListener("change", () => {
-                if (checkbox.checked) {
-                  runRequest(
-                    () =>
-                      client.addModelPoolEntry({
-                        modelId: model.id,
-                        ...(model.label !== undefined ? { label: model.label } : {}),
-                        providerId: provider.id,
-                      }),
-                    (result) => {
-                      latest = result;
-                      render(result);
-                    },
-                  );
-                } else {
-                  runRequest(
-                    () =>
-                      client.removeModelPoolEntry({ modelId: model.id, providerId: provider.id }),
-                    (result) => {
-                      latest = result;
-                      render(result);
-                    },
-                  );
-                }
-              });
-              const label = document.createElement("span");
-              label.textContent = model.label ?? model.id;
-              const id = document.createElement("code");
-              id.textContent = model.id;
-              row.append(checkbox, label, id);
-              candidates.append(row);
-            }
-          }
-        }
-
-        card.append(identity, controls, status, candidates);
+        card.append(identity, endpoint, meta, controls, status);
+        if (expanded && formState) card.append(buildForm(formState));
         return card;
+      };
+
+      const renderAddCard = (): HTMLElement => {
+        const card = document.createElement("div");
+        card.className = "settings-model-provider-card settings-model-provider-card--add";
+        card.dataset.modelProviderExpand = ADD_PROVIDER_KEY;
+        const title = document.createElement("strong");
+        title.className = "settings-model-provider-card__add-title";
+        title.textContent = messages.modelServicesAddProvider;
+        card.append(title);
+        if (formState) card.append(buildForm(formState));
+        return card;
+      };
+
+      const renderSourceList = (result: ModelProviderListResult): void => {
+        sourceList.replaceChildren();
+        const head = document.createElement("div");
+        head.className = "settings-model-source-list__head";
+        const title = document.createElement("strong");
+        title.textContent = messages.modelServicesSourcesTitle;
+        const addButton = createButton(
+          document,
+          "settings-command-button",
+          messages.modelServicesAddProvider,
+          "check",
+        );
+        addButton.addEventListener("click", () => openForm(null));
+        head.append(title, addButton);
+        sourceList.append(head);
+
+        if (result.providers.length === 0 && formState === null) {
+          const empty = document.createElement("p");
+          empty.className = "settings-model-source-list__empty";
+          empty.textContent = messages.modelServicesNoProviders;
+          sourceList.append(empty);
+          return;
+        }
+        for (const provider of result.providers) {
+          sourceList.append(renderProviderCard(provider, result.pool));
+        }
+        if (formState !== null && formState.providerId === null) {
+          sourceList.append(renderAddCard());
+        }
+      };
+
+      const openForm = (provider: ModelProviderConfig | null): void => {
+        formState = provider
+          ? {
+              providerId: provider.id,
+              wireFormat: provider.wireFormat,
+              baseUrl: provider.baseUrl,
+              path: provider.path ?? defaultModelProviderPath(provider.wireFormat),
+              apiKey: "",
+              name: provider.name,
+              headers: (provider.headers ?? []).map((header) => ({
+                name: header.name,
+                value: "",
+                storedValue: header.hasValue ?? false,
+              })),
+              clearedHeaders: new Set<string>(),
+            }
+          : {
+              providerId: null,
+              wireFormat: "openai-chat",
+              baseUrl: "",
+              path: defaultModelProviderPath("openai-chat"),
+              apiKey: "",
+              name: "",
+              headers: [],
+              clearedHeaders: new Set<string>(),
+            };
+        render(latest);
       };
 
       const render = (result: ModelProviderListResult | null): void => {
@@ -493,115 +509,452 @@ export function createModelServicesSettingsPage(
         errorNote.textContent = "";
         const current = latest;
         if (!current) return;
-
         renderGateway(current);
-
-        // Protocol sections. Existing sections are keyed by protocol so their
-        // scroll/anchor state survives re-renders; only the provider list is
-        // refreshed each time.
-        const existingSections = new Map<ModelProviderProtocol, HTMLElement>();
-        for (const section of [
-          ...context.content.querySelectorAll<HTMLElement>("[data-model-protocol-section]"),
-        ]) {
-          const protocol = section.dataset.modelProtocolSection as ModelProviderProtocol;
-          if (protocol) existingSections.set(protocol, section);
-        }
-        for (const protocol of modelProviderProtocols) {
-          let section = existingSections.get(protocol);
-          if (!section) {
-            section = document.createElement("section");
-            section.className = "settings-model-protocol-section";
-            section.dataset.modelProtocolSection = protocol;
-            context.content.append(section);
-          }
-          section.replaceChildren();
-          const sectionHead = document.createElement("div");
-          sectionHead.className = "settings-model-protocol-section__head";
-          const title = document.createElement("strong");
-          title.textContent = MODEL_PROVIDER_PROTOCOL_LABELS[protocol];
-          const subtitle = document.createElement("span");
-          subtitle.textContent = providerDescription(protocol, messages);
-          const addButton = createButton(
-            document,
-            "settings-command-button settings-command-button--secondary",
-            messages.modelServicesAddProvider,
-            "check",
-          );
-          addButton.addEventListener("click", () => openForm(null, protocol));
-          sectionHead.append(title, subtitle, addButton);
-          section.append(sectionHead);
-
-          const list = document.createElement("div");
-          list.className = "settings-model-provider-list";
-          const protocolProviders = current.providers.filter(
-            (provider) => provider.protocol === protocol,
-          );
-          if (protocolProviders.length === 0) {
-            const empty = document.createElement("p");
-            empty.textContent = messages.modelServicesNoProviders;
-            list.append(empty);
-          } else {
-            for (const provider of protocolProviders) {
-              list.append(renderProviderCard(provider, current.pool));
-            }
-          }
-          section.append(list);
-        }
-
-        const poolSection = context.content.querySelector<HTMLElement>(".settings-model-pool");
-        const poolContainer =
-          poolSection ??
-          (() => {
-            const section = document.createElement("section");
-            section.className = "settings-model-pool";
-            context.content.append(section);
-            return section;
-          })();
-        renderPool(poolContainer, current.pool);
+        renderSourceList(current);
       };
 
-      saveButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        const id = idInput.value.trim();
-        if (id.length === 0) {
-          formStatus.textContent = messages.modelServicesFormInvalidId;
-          return;
+      const buildForm = (form: ExpandedFormState): HTMLFormElement => {
+        const formElement = document.createElement("form");
+        formElement.className = "settings-model-provider-form";
+        formElement.noValidate = true;
+
+        // 1. Wire format (linked to the exact request path).
+        const wireFormatField = document.createElement("label");
+        wireFormatField.className = "settings-model-field";
+        const wireFormatLabelEl = document.createElement("span");
+        wireFormatLabelEl.textContent = messages.modelServicesProviderWireFormat;
+        const wireFormatInput = document.createElement("select");
+        for (const wireFormat of modelProviderWireFormats) {
+          const option = document.createElement("option");
+          option.value = wireFormat;
+          option.textContent = wireFormatLabel(wireFormat, messages);
+          wireFormatInput.append(option);
         }
-        if (!MODEL_PROVIDER_ID_PATTERN.test(id)) {
-          formStatus.textContent = messages.modelServicesFormInvalidId;
-          return;
+        wireFormatInput.value = form.wireFormat;
+        wireFormatField.append(wireFormatLabelEl, wireFormatInput);
+
+        // 2. Base URL with a live full-URL preview.
+        const baseUrlField = document.createElement("label");
+        baseUrlField.className = "settings-model-field";
+        const baseUrlLabelEl = document.createElement("span");
+        baseUrlLabelEl.textContent = messages.modelServicesProviderBaseUrl;
+        const baseUrlInput = document.createElement("input");
+        baseUrlInput.type = "url";
+        baseUrlInput.placeholder = "https://api.example.com";
+        baseUrlInput.value = form.baseUrl;
+        const fullUrlPreview = document.createElement("code");
+        fullUrlPreview.className = "settings-model-full-url";
+        baseUrlField.append(baseUrlLabelEl, baseUrlInput, fullUrlPreview);
+
+        // 3. API token with a reveal/hide toggle.
+        const apiKeyField = document.createElement("label");
+        apiKeyField.className = "settings-model-field";
+        const apiKeyLabelEl = document.createElement("span");
+        apiKeyLabelEl.textContent = messages.modelServicesProviderApiKey;
+        const apiKeyRow = document.createElement("span");
+        apiKeyRow.className = "settings-model-api-key-row";
+        const apiKeyInput = document.createElement("input");
+        apiKeyInput.type = "password";
+        apiKeyInput.autocomplete = "off";
+        apiKeyInput.placeholder = messages.modelServicesProviderApiKeyHint;
+        const apiKeyToggle = document.createElement("button");
+        apiKeyToggle.type = "button";
+        apiKeyToggle.className = "settings-model-api-key-toggle";
+        apiKeyToggle.textContent = messages.modelServicesApiKeyShow;
+        apiKeyRow.append(apiKeyInput, apiKeyToggle);
+        apiKeyField.append(apiKeyLabelEl, apiKeyRow);
+        const hasStoredKey =
+          form.providerId !== null &&
+          (latest?.providers.find((candidate) => candidate.id === form.providerId)?.hasApiKey ??
+            false);
+        if (hasStoredKey) {
+          const storedHint = document.createElement("span");
+          storedHint.className = "settings-model-field__hint";
+          storedHint.textContent = messages.modelServicesProviderApiKeySaved;
+          apiKeyField.append(storedHint);
         }
-        const name = nameInput.value.trim();
-        if (name.length === 0) {
-          formStatus.textContent = messages.modelServicesSaveFailed;
-          return;
-        }
-        const baseUrl = baseUrlInput.value.trim();
-        if (baseUrl.length === 0) {
-          formStatus.textContent = messages.modelServicesSaveFailed;
-          return;
-        }
-        formStatus.textContent = "";
-        runRequest(
-          () =>
-            client.saveModelProvider({
-              id: id as ModelProviderId,
-              name,
-              protocol: protocolInput.value as ModelProviderProtocol,
-              baseUrl,
-              ...(apiKeyInput.value.length > 0 ? { apiKey: apiKeyInput.value } : {}),
-            }),
-          (result) => {
-            latest = result;
-            closeForm();
-            render(result);
-          },
+
+        // 4. Model name / model list: fetch candidates, check into the pool,
+        //    manual add row, context-window per model.
+        const modelsBlock = document.createElement("div");
+        modelsBlock.className = "settings-model-models";
+        const modelsHead = document.createElement("div");
+        modelsHead.className = "settings-model-models__head";
+        const modelsTitle = document.createElement("strong");
+        modelsTitle.textContent = messages.modelServicesModelsTitle;
+        const providerBusy = form.providerId !== null && pending.has(form.providerId);
+        const fetchButton = createButton(
+          document,
+          "settings-command-button settings-command-button--secondary",
+          providerBusy ? messages.modelServicesFetchingModels : messages.modelServicesFetchModels,
+          "refresh",
         );
-      });
-      cancelButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        closeForm();
-      });
+        fetchButton.disabled = providerBusy;
+        fetchButton.addEventListener("click", () => {
+          if (form.providerId !== null) {
+            fetchModelsFor(form.providerId);
+            return;
+          }
+          // Add mode: persist the source first so the fetch has an ID to use.
+          submitForm({
+            formStatus,
+            keepOpen: true,
+            onSaved: (id) => fetchModelsFor(id),
+          });
+        });
+        modelsHead.append(modelsTitle, fetchButton);
+        const candidates = document.createElement("div");
+        candidates.className = "settings-model-candidates";
+        const poolList = document.createElement("div");
+        poolList.className = "settings-model-pool-list";
+        const addModelRow = document.createElement("div");
+        addModelRow.className = "settings-model-add-model";
+        const addModelIdInput = document.createElement("input");
+        addModelIdInput.type = "text";
+        addModelIdInput.placeholder = "model-id";
+        const addModelLabelInput = document.createElement("input");
+        addModelLabelInput.type = "text";
+        addModelLabelInput.placeholder = messages.modelServicesModelLabelPlaceholder;
+        const addModelContextInput = document.createElement("input");
+        addModelContextInput.type = "number";
+        addModelContextInput.min = "1";
+        addModelContextInput.placeholder = messages.modelServicesContextWindow;
+        const addModelButton = createButton(
+          document,
+          "settings-command-button settings-command-button--secondary",
+          messages.modelServicesAddModel,
+          "check",
+        );
+        addModelButton.addEventListener("click", () => {
+          const modelId = addModelIdInput.value.trim();
+          const providerId = form.providerId;
+          if (modelId.length === 0 || providerId === null) return;
+          const label = addModelLabelInput.value.trim();
+          const contextWindow = addModelContextInput.value
+            ? Number(addModelContextInput.value)
+            : undefined;
+          runRequest(
+            () =>
+              client.addModelPoolEntry({
+                modelId,
+                ...(label.length > 0 ? { label } : {}),
+                providerId,
+                ...(contextWindow !== undefined &&
+                Number.isInteger(contextWindow) &&
+                contextWindow > 0
+                  ? { contextWindow }
+                  : {}),
+              }),
+            (result) => {
+              latest = result;
+              render(result);
+            },
+          );
+        });
+        addModelRow.append(addModelIdInput, addModelLabelInput, addModelContextInput, addModelButton);
+        modelsBlock.append(modelsHead, candidates, poolList, addModelRow);
+
+        // 5. Remark (the source display name; also the slug source).
+        const nameField = document.createElement("label");
+        nameField.className = "settings-model-field";
+        const nameLabelEl = document.createElement("span");
+        nameLabelEl.textContent = messages.modelServicesProviderName;
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.value = form.name;
+        nameField.append(nameLabelEl, nameInput);
+
+        // 6. Advanced: exact-path override + dynamic request headers.
+        const advanced = document.createElement("details");
+        advanced.className = "settings-model-advanced";
+        const advancedSummary = document.createElement("summary");
+        advancedSummary.textContent = messages.modelServicesAdvanced;
+        const pathField = document.createElement("label");
+        pathField.className = "settings-model-field";
+        const pathLabelEl = document.createElement("span");
+        pathLabelEl.textContent = messages.modelServicesProviderPath;
+        const pathInput = document.createElement("input");
+        pathInput.type = "text";
+        pathInput.value = form.path;
+        pathInput.placeholder = defaultModelProviderPath(form.wireFormat);
+        const pathHint = document.createElement("span");
+        pathHint.className = "settings-model-field__hint";
+        pathHint.textContent = messages.modelServicesPathHint;
+        pathField.append(pathLabelEl, pathInput, pathHint);
+        const headersBlock = document.createElement("div");
+        headersBlock.className = "settings-model-headers";
+        const headersHead = document.createElement("div");
+        headersHead.className = "settings-model-headers__head";
+        const headersTitle = document.createElement("strong");
+        headersTitle.textContent = messages.modelServicesHeaders;
+        const addHeaderButton = createButton(
+          document,
+          "settings-command-button settings-command-button--secondary",
+          messages.modelServicesAddHeader,
+          "check",
+        );
+        headersHead.append(headersTitle, addHeaderButton);
+        const headerRows = document.createElement("div");
+        headerRows.className = "settings-model-headers__rows";
+        headersBlock.append(headersHead, headerRows);
+        advanced.append(advancedSummary, pathField, headersBlock);
+
+        // 7. Actions + inline status.
+        const actions = document.createElement("div");
+        actions.className = "settings-model-provider-form__actions";
+        const saveButton = createButton(
+          document,
+          "settings-command-button",
+          messages.modelServicesSave,
+          "check",
+        );
+        const cancelButton = createButton(
+          document,
+          "settings-command-button settings-command-button--secondary",
+          messages.modelServicesCancel,
+          "close",
+        );
+        const formStatus = document.createElement("span");
+        formStatus.className = "settings-model-provider-form-status";
+        formStatus.dataset.modelProviderFormStatus = "value";
+        actions.append(saveButton, cancelButton, formStatus);
+
+        formElement.append(
+          wireFormatField,
+          baseUrlField,
+          apiKeyField,
+          modelsBlock,
+          nameField,
+          advanced,
+          actions,
+        );
+
+        const refreshFullUrl = (): void => {
+          fullUrlPreview.textContent =
+            baseUrlInput.value.trim().length > 0
+              ? fullUrl(baseUrlInput.value.trim(), pathInput.value.trim())
+              : "";
+        };
+        refreshFullUrl();
+
+        wireFormatInput.addEventListener("change", () => {
+          form.wireFormat = wireFormatInput.value as ModelProviderWireFormat;
+          form.path = defaultModelProviderPath(form.wireFormat);
+          pathInput.value = form.path;
+          pathInput.placeholder = form.path;
+          refreshFullUrl();
+        });
+        baseUrlInput.addEventListener("input", () => {
+          form.baseUrl = baseUrlInput.value;
+          refreshFullUrl();
+        });
+        pathInput.addEventListener("input", () => {
+          form.path = pathInput.value;
+          refreshFullUrl();
+        });
+        apiKeyInput.addEventListener("input", () => {
+          form.apiKey = apiKeyInput.value;
+        });
+        nameInput.addEventListener("input", () => {
+          form.name = nameInput.value;
+        });
+        apiKeyToggle.addEventListener("click", () => {
+          const reveal = apiKeyInput.type === "password";
+          apiKeyInput.type = reveal ? "text" : "password";
+          apiKeyToggle.textContent = reveal
+            ? messages.modelServicesApiKeyHide
+            : messages.modelServicesApiKeyShow;
+        });
+
+        const renderHeaderRows = (): void => {
+          headerRows.replaceChildren();
+          if (form.headers.length === 0) {
+            const empty = document.createElement("p");
+            empty.className = "settings-model-headers__empty";
+            empty.textContent = messages.modelServicesNoHeaders;
+            headerRows.append(empty);
+            return;
+          }
+          form.headers.forEach((row, index) => {
+            const rowElement = document.createElement("div");
+            rowElement.className = "settings-model-header-row";
+            const nameInput = document.createElement("input");
+            nameInput.type = "text";
+            nameInput.placeholder = messages.modelServicesHeaderName;
+            nameInput.value = row.name;
+            nameInput.addEventListener("input", () => {
+              row.name = nameInput.value;
+            });
+            const valueInput = document.createElement("input");
+            valueInput.type = "text";
+            valueInput.placeholder = row.storedValue
+              ? messages.modelServicesHeaderValueSaved
+              : messages.modelServicesHeaderValue;
+            valueInput.value = row.value;
+            valueInput.addEventListener("input", () => {
+              row.value = valueInput.value;
+            });
+            const removeButton = createButton(
+              document,
+              "settings-model-header-remove",
+              messages.modelServicesCandidateRemove,
+              "close",
+            );
+            removeButton.setAttribute(
+              "aria-label",
+              `${messages.modelServicesRemoveHeader} ${row.name || ""}`.trim(),
+            );
+            removeButton.addEventListener("click", () => {
+              if (row.storedValue) form.clearedHeaders.add(row.name.trim());
+              form.headers.splice(index, 1);
+              renderHeaderRows();
+            });
+            rowElement.append(nameInput, valueInput, removeButton);
+            headerRows.append(rowElement);
+          });
+        };
+        renderHeaderRows();
+        addHeaderButton.addEventListener("click", () => {
+          form.headers.push({ name: "", value: "", storedValue: false });
+          renderHeaderRows();
+        });
+
+        const renderModelSection = (): void => {
+          const providerId = form.providerId;
+          const pool = latest?.pool ?? [];
+          const fetched = providerId !== null ? (fetchedModels.get(providerId) ?? []) : [];
+          const hasFetched = providerId !== null && fetchedModels.has(providerId);
+
+          candidates.replaceChildren();
+          for (const model of fetched) {
+            const inPool =
+              providerId !== null &&
+              pool.some(
+                (entry) => entry.modelId === model.id && entry.providerId === providerId,
+              );
+            const row = document.createElement("label");
+            row.className = "settings-model-provider-candidate";
+            row.dataset.modelCandidate = providerId
+              ? `${providerId}/${model.id}`
+              : model.id;
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = inPool;
+            checkbox.disabled = providerId === null;
+            checkbox.addEventListener("change", () => {
+              if (providerId === null) return;
+              if (checkbox.checked) {
+                runRequest(
+                  () =>
+                    client.addModelPoolEntry({
+                      modelId: model.id,
+                      ...(model.label !== undefined ? { label: model.label } : {}),
+                      providerId,
+                    }),
+                  (result) => {
+                    latest = result;
+                    render(result);
+                  },
+                );
+              } else {
+                runRequest(
+                  () => client.removeModelPoolEntry({ modelId: model.id, providerId }),
+                  (result) => {
+                    latest = result;
+                    render(result);
+                  },
+                );
+              }
+            });
+            const label = document.createElement("span");
+            label.textContent = model.label ?? model.id;
+            const id = document.createElement("code");
+            id.textContent = model.id;
+            row.append(checkbox, label, id);
+            candidates.append(row);
+          }
+          if (hasFetched && fetched.length === 0) {
+            const hint = document.createElement("p");
+            hint.className = "settings-model-candidates__empty";
+            hint.textContent = messages.modelServicesNoModels;
+            candidates.append(hint);
+          } else if (!hasFetched && providerId !== null) {
+            const hint = document.createElement("p");
+            hint.className = "settings-model-candidates__empty";
+            hint.textContent = messages.modelServicesModelsNotFetched;
+            candidates.append(hint);
+          }
+
+          poolList.replaceChildren();
+          const entries = pool.filter((entry) => entry.providerId === providerId);
+          for (const entry of entries) {
+            const rowElement = document.createElement("div");
+            rowElement.className = "settings-model-pool-entry";
+            rowElement.dataset.modelPoolEntry = poolKey(entry);
+            const id = document.createElement("code");
+            id.textContent = entry.modelId;
+            const label = document.createElement("span");
+            label.textContent = entry.label ?? "";
+            const contextInput = document.createElement("input");
+            contextInput.type = "number";
+            contextInput.min = "1";
+            contextInput.placeholder = messages.modelServicesContextWindow;
+            contextInput.value =
+              entry.contextWindow !== undefined ? String(entry.contextWindow) : "";
+            contextInput.addEventListener("change", () => {
+              const value = Number(contextInput.value);
+              if (!Number.isInteger(value) || value <= 0) return;
+              runRequest(
+                () =>
+                  client.addModelPoolEntry({
+                    modelId: entry.modelId,
+                    ...(entry.label !== undefined ? { label: entry.label } : {}),
+                    providerId: entry.providerId,
+                    contextWindow: value,
+                  }),
+                (result) => {
+                  latest = result;
+                  render(result);
+                },
+              );
+            });
+            const removeButton = createButton(
+              document,
+              "settings-model-pool-remove",
+              messages.modelServicesCandidateRemove,
+              "close",
+            );
+            removeButton.setAttribute(
+              "aria-label",
+              `${messages.modelServicesCandidateRemove} ${entry.modelId}`,
+            );
+            removeButton.addEventListener("click", () => {
+              runRequest(
+                () => client.removeModelPoolEntry({ modelId: entry.modelId, providerId: entry.providerId }),
+                (result) => {
+                  latest = result;
+                  render(result);
+                },
+              );
+            });
+            rowElement.append(id, label, contextInput, removeButton);
+            poolList.append(rowElement);
+          }
+        };
+        renderModelSection();
+
+        saveButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          submitForm({ formStatus, keepOpen: false });
+        });
+        cancelButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          formState = null;
+          render(latest);
+        });
+
+        return formElement;
+      };
 
       // The gateway endpoint is carried by the list result while the default
       // routes come from gateway-status. runLatest only keeps the newest

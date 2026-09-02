@@ -412,12 +412,12 @@ describe("Renderer fixed Model request client", () => {
           {
             id: providerId,
             name: "My Gateway",
-            protocol: "openai",
+            wireFormat: "openai-chat",
             baseUrl: "https://api.example.com/v1",
             hasApiKey: true,
           },
         ],
-        pool: [{ modelId: "gpt-5", providerId, protocol: "openai" }],
+        pool: [{ modelId: "gpt-5", providerId, wireFormat: "openai-chat" }],
         gatewayEndpoint: "http://127.0.0.1:54321",
       })
       .mockResolvedValueOnce({
@@ -425,7 +425,7 @@ describe("Renderer fixed Model request client", () => {
           {
             id: providerId,
             name: "My Gateway",
-            protocol: "openai",
+            wireFormat: "openai-chat",
             baseUrl: "https://api.example.com/v1",
             hasApiKey: true,
           },
@@ -440,7 +440,7 @@ describe("Renderer fixed Model request client", () => {
       })
       .mockResolvedValueOnce({
         providers: [],
-        pool: [{ modelId: "gpt-5", providerId, protocol: "openai" }],
+        pool: [{ modelId: "gpt-5", providerId, wireFormat: "openai-chat" }],
         gatewayEndpoint: "http://127.0.0.1:54321",
       })
       .mockResolvedValueOnce({
@@ -455,7 +455,7 @@ describe("Renderer fixed Model request client", () => {
       .mockResolvedValueOnce({
         endpoint: "http://127.0.0.1:54321",
         tokenIssuedAt: 42,
-        defaultRoutes: [{ protocol: "openai", providerId }],
+        defaultRoutes: [{ wireFormat: "openai-chat", providerId }],
       });
     const client = createRendererModelClient([{ sendRequest }]);
     if (!client) throw new Error("Synthetic Model client was not created");
@@ -463,6 +463,7 @@ describe("Renderer fixed Model request client", () => {
     const list = await client.listModelProviders();
     expect(list.gatewayEndpoint).toBe("http://127.0.0.1:54321");
     expect(list.providers[0]?.id).toBe(providerId);
+    expect(list.providers[0]?.wireFormat).toBe("openai-chat");
     expect(list.providers[0]?.hasApiKey).toBe(true);
     expect(list.providers[0]?.apiKey).toBeUndefined();
     expect(sendRequest).toHaveBeenNthCalledWith(1, MODEL_PROVIDER_LIST_METHOD, {});
@@ -471,7 +472,7 @@ describe("Renderer fixed Model request client", () => {
       client.saveModelProvider({
         id: providerId,
         name: "My Gateway",
-        protocol: "openai",
+        wireFormat: "openai-chat",
         baseUrl: "https://api.example.com/v1",
         apiKey: "sk-test",
       }),
@@ -479,7 +480,7 @@ describe("Renderer fixed Model request client", () => {
     expect(sendRequest).toHaveBeenNthCalledWith(2, MODEL_PROVIDER_SAVE_METHOD, {
       id: providerId,
       name: "My Gateway",
-      protocol: "openai",
+      wireFormat: "openai-chat",
       baseUrl: "https://api.example.com/v1",
       apiKey: "sk-test",
     });
@@ -525,7 +526,7 @@ describe("Renderer fixed Model request client", () => {
 
     await expect(client.readModelGatewayStatus()).resolves.toMatchObject({
       tokenIssuedAt: 42,
-      defaultRoutes: [{ protocol: "openai", providerId }],
+      defaultRoutes: [{ wireFormat: "openai-chat", providerId }],
     });
     expect(sendRequest).toHaveBeenNthCalledWith(8, MODEL_PROVIDER_GATEWAY_STATUS_METHOD, {});
   });
