@@ -5,6 +5,8 @@ const COLLISION_PADDING = 8;
 export const RENDERER_MODEL_PICKER_MAIN_MENU_WIDTH = 260;
 const RENDERER_MODEL_PICKER_MODEL_MENU_WIDTH = 280;
 export const RENDERER_MODEL_PICKER_MODEL_MENU_MAX_HEIGHT = 360;
+/** Width of the per-Model thinking-strength hover card. */
+export const RENDERER_MODEL_PICKER_STRENGTH_CARD_WIDTH = 220;
 
 export interface RendererMenuRect {
   left: number;
@@ -77,36 +79,37 @@ export function rendererModelPickerStandaloneModelMenuPlacement(
 export function rendererModelPickerModelMenuPlacement(
   mainRect: RendererMenuRect,
   viewport: RendererViewport,
+  requestedWidth = RENDERER_MODEL_PICKER_MODEL_MENU_WIDTH,
 ): RendererMenuPlacement {
-  const preferredWidth = fitWidth(RENDERER_MODEL_PICKER_MODEL_MENU_WIDTH, viewport.width);
+  const preferredWidth = fitWidth(requestedWidth, viewport.width);
   const rightLeft = mainRect.right + MENU_GAP;
   const leftLeft = mainRect.left - MENU_GAP - preferredWidth;
   const rightAvailable = viewport.width - rightLeft - COLLISION_PADDING;
   const leftAvailable = mainRect.left - MENU_GAP - COLLISION_PADDING;
 
-  let width: number;
+  let fittedWidth: number;
   let left: number;
   if (rightAvailable >= preferredWidth) {
-    width = preferredWidth;
+    fittedWidth = preferredWidth;
     left = rightLeft;
   } else if (leftAvailable >= preferredWidth) {
-    width = preferredWidth;
+    fittedWidth = preferredWidth;
     left = leftLeft;
   } else if (rightAvailable >= leftAvailable) {
-    width = Math.max(COLLISION_PADDING, rightAvailable);
+    fittedWidth = Math.max(COLLISION_PADDING, rightAvailable);
     left = rightLeft;
   } else {
-    width = Math.max(COLLISION_PADDING, leftAvailable);
-    left = mainRect.left - MENU_GAP - width;
+    fittedWidth = Math.max(COLLISION_PADDING, leftAvailable);
+    left = mainRect.left - MENU_GAP - fittedWidth;
   }
 
   const top = clampPosition(mainRect.top, COLLISION_PADDING, viewport.height - COLLISION_PADDING);
   const maxHeight = fitHeight(viewport, top);
 
   return {
-    left: clampPosition(left, COLLISION_PADDING, viewport.width - COLLISION_PADDING - width),
+    left: clampPosition(left, COLLISION_PADDING, viewport.width - COLLISION_PADDING - fittedWidth),
     top,
-    width,
+    width: fittedWidth,
     maxHeight,
   };
 }
