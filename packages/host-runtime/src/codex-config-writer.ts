@@ -63,13 +63,19 @@ export async function writeCodexGatewayProvider(
   existing.model_providers = modelProviders;
 
   const serialized = stringifyToml(existing);
-  await fileSystem.writeFile(input.configPath, serialized.endsWith("\n") ? serialized : `${serialized}\n`, "utf8");
+  await fileSystem.writeFile(
+    input.configPath,
+    serialized.endsWith("\n") ? serialized : `${serialized}\n`,
+    "utf8",
+  );
   return { wroteBackup };
 }
 
 /** Resolves the Codex config path, overridable for tests. */
 export function defaultCodexConfigPath(environment: NodeJS.ProcessEnv): string {
-  return environment.CODEXHOST_CODEX_CONFIG_PATH ?? path.join(os.homedir(), ".codex", "config.toml");
+  return (
+    environment.CODEXHOST_CODEX_CONFIG_PATH ?? path.join(os.homedir(), ".codex", "config.toml")
+  );
 }
 
 /**
@@ -98,9 +104,17 @@ export async function removeCodexGatewayProvider(
   } else {
     existing.model_providers = remaining;
   }
-  await fileSystem.writeFile(`${input.configPath}.codexhost-${Date.now()}.bak`, originalText, "utf8");
+  await fileSystem.writeFile(
+    `${input.configPath}.codexhost-${Date.now()}.bak`,
+    originalText,
+    "utf8",
+  );
   const serialized = stringifyToml(existing);
-  await fileSystem.writeFile(input.configPath, serialized.endsWith("\n") ? serialized : `${serialized}\n`, "utf8");
+  await fileSystem.writeFile(
+    input.configPath,
+    serialized.endsWith("\n") ? serialized : `${serialized}\n`,
+    "utf8",
+  );
   return true;
 }
 

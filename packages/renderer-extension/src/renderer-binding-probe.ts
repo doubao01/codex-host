@@ -1651,9 +1651,7 @@ export function installRendererBindingProbe(
     }
   };
 
-  const selectRendererDefaultThinking = async (
-    mounted: MountedComposer,
-  ): Promise<void> => {
+  const selectRendererDefaultThinking = async (mounted: MountedComposer): Promise<void> => {
     controller.clearPendingSubmission(mounted.composer);
     const current = controller.get(mounted.composer);
     if (current.agent === "codex") return;
@@ -1677,15 +1675,7 @@ export function installRendererBindingProbe(
     try {
       let effectiveCatalog = catalog;
       if (current.phase === "draft") {
-        if (
-          !applyExternalConfiguration(
-            mounted,
-            agent,
-            model,
-            defaultOptionId,
-            permissionModeId,
-          )
-        ) {
+        if (!applyExternalConfiguration(mounted, agent, model, defaultOptionId, permissionModeId)) {
           throw new Error("External Thinking could not be applied to the Composer");
         }
         try {

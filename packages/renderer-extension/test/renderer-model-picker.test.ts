@@ -57,7 +57,7 @@ function claudeCatalog(
     ],
     defaultModel: model,
     thinkingOptions,
-    ...(defaultThinkingOptionId ?? thinkingOptions[0]?.id
+    ...((defaultThinkingOptionId ?? thinkingOptions[0]?.id)
       ? { defaultThinkingOptionId: defaultThinkingOptionId ?? thinkingOptions[0]?.id }
       : {}),
   });
@@ -261,7 +261,10 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
           option: { id: "medium", label: "Medium" },
         },
         { tier: expect.objectContaining({ key: "high" }), option: { id: "high", label: "High" } },
-        { tier: expect.objectContaining({ key: "xhigh" }), option: { id: "xhigh", label: "Extra High" } },
+        {
+          tier: expect.objectContaining({ key: "xhigh" }),
+          option: { id: "xhigh", label: "Extra High" },
+        },
         { tier: expect.objectContaining({ key: "max" }), option: { id: "max", label: "Maximum" } },
       ],
       otherOptions: [

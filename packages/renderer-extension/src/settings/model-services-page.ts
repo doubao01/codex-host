@@ -242,7 +242,10 @@ export function createModelServicesSettingsPage(
         gatewayBody.append(note);
       };
 
-      const openForm = (provider: ModelProviderConfig | null, protocol: ModelProviderProtocol): void => {
+      const openForm = (
+        provider: ModelProviderConfig | null,
+        protocol: ModelProviderProtocol,
+      ): void => {
         form.hidden = false;
         formStatus.textContent = "";
         formTitle.textContent = provider
@@ -290,10 +293,17 @@ export function createModelServicesSettingsPage(
             messages.modelServicesCandidateRemove,
             "close",
           );
-          remove.setAttribute("aria-label", `${messages.modelServicesCandidateRemove} ${entry.modelId}`);
+          remove.setAttribute(
+            "aria-label",
+            `${messages.modelServicesCandidateRemove} ${entry.modelId}`,
+          );
           remove.addEventListener("click", () => {
             runRequest(
-              () => client.removeModelPoolEntry({ modelId: entry.modelId, providerId: entry.providerId }),
+              () =>
+                client.removeModelPoolEntry({
+                  modelId: entry.modelId,
+                  providerId: entry.providerId,
+                }),
               (result) => {
                 latest = result;
                 render(result);
@@ -385,7 +395,10 @@ export function createModelServicesSettingsPage(
           messages.modelServicesRemoveProvider,
           "close",
         );
-        removeButton.setAttribute("aria-label", `${messages.modelServicesRemoveProvider} ${provider.name}`);
+        removeButton.setAttribute(
+          "aria-label",
+          `${messages.modelServicesRemoveProvider} ${provider.name}`,
+        );
         removeButton.addEventListener("click", () => {
           runRequest(
             () => client.removeModelProvider(provider.id),
@@ -452,7 +465,8 @@ export function createModelServicesSettingsPage(
                   );
                 } else {
                   runRequest(
-                    () => client.removeModelPoolEntry({ modelId: model.id, providerId: provider.id }),
+                    () =>
+                      client.removeModelPoolEntry({ modelId: model.id, providerId: provider.id }),
                     (result) => {
                       latest = result;
                       render(result);
@@ -486,9 +500,9 @@ export function createModelServicesSettingsPage(
         // scroll/anchor state survives re-renders; only the provider list is
         // refreshed each time.
         const existingSections = new Map<ModelProviderProtocol, HTMLElement>();
-        for (const section of [...context.content.querySelectorAll<HTMLElement>(
-          "[data-model-protocol-section]",
-        )]) {
+        for (const section of [
+          ...context.content.querySelectorAll<HTMLElement>("[data-model-protocol-section]"),
+        ]) {
           const protocol = section.dataset.modelProtocolSection as ModelProviderProtocol;
           if (protocol) existingSections.set(protocol, section);
         }
@@ -593,8 +607,7 @@ export function createModelServicesSettingsPage(
       // routes come from gateway-status. runLatest only keeps the newest
       // request, so load both in a single operation before the first render.
       runRequest(
-        () =>
-          Promise.all([client.readModelGatewayStatus(), client.listModelProviders()]),
+        () => Promise.all([client.readModelGatewayStatus(), client.listModelProviders()]),
         ([status, result]) => {
           gatewayStatus = status;
           latest = result;

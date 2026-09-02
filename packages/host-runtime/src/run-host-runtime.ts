@@ -9,15 +9,8 @@ import {
   createExternalHarnessAdapters,
   prefetchClaudeCodeModelCatalog,
 } from "./adapter-composition.js";
-import {
-  AppServerHost,
-  officialEnvironment,
-  type ModelProviderHost,
-} from "./app-server-host.js";
-import {
-  defaultCodexConfigPath,
-  syncCodexGatewayProvider,
-} from "./codex-config-writer.js";
+import { AppServerHost, officialEnvironment, type ModelProviderHost } from "./app-server-host.js";
+import { defaultCodexConfigPath, syncCodexGatewayProvider } from "./codex-config-writer.js";
 import { DelegationControlRegistry } from "./delegation-control-registry.js";
 import { startDelegationControlServer } from "./delegation-control-server.js";
 import { installDelegationSkills } from "./delegation-skill.js";
@@ -160,12 +153,10 @@ async function prepareDelegationRuntime(input: {
       process.stderr.write(`codexhost delegation Skill installation failed: ${String(error)}\n`);
     });
   try {
-    return await input.createHost(
-      environment,
-      (value) => registry.register(value),
-      registry,
-      { registry: modelProviderRegistry, gateway: modelGateway },
-    );
+    return await input.createHost(environment, (value) => registry.register(value), registry, {
+      registry: modelProviderRegistry,
+      gateway: modelGateway,
+    });
   } finally {
     await Promise.allSettled([server.close(), modelGateway.close()]);
   }

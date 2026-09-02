@@ -182,8 +182,7 @@ export function rendererModelPickerPresentation(
     selected === undefined || defaultOption === undefined || selected.id === defaultOption.id;
   const showThinkingSection =
     options.length > 0 &&
-    (strengthTiers.length > 0 ||
-      !(otherOptions.length === 1 && otherOptions[0]?.id === "off"));
+    (strengthTiers.length > 0 || !(otherOptions.length === 1 && otherOptions[0]?.id === "off"));
   const resolvedModelLabel = view.resolvedModelLabel ?? selectedModel?.resolvedModelLabel;
   let modelLabel = "Select model";
   if (selectedModel) modelLabel = selectedModel.label;

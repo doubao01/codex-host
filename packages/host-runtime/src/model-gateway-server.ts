@@ -1,5 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { createServer, request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { Agent as HttpAgent } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -53,7 +60,9 @@ function normalizeHeaders(headers: IncomingHttpHeaders): Record<string, string> 
 function parseModelList(body: Buffer): { id: string; label?: string }[] {
   const parsed: unknown = JSON.parse(body.toString("utf8"));
   const data =
-    typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { data?: unknown }).data)
+    typeof parsed === "object" &&
+    parsed !== null &&
+    Array.isArray((parsed as { data?: unknown }).data)
       ? (parsed as { data: unknown[] }).data
       : Array.isArray(parsed)
         ? parsed
@@ -69,7 +78,9 @@ function parseModelList(body: Buffer): { id: string; label?: string }[] {
         : typeof record.name === "string" && record.name.length > 0
           ? record.name
           : undefined;
-    models.push(label !== undefined && label !== record.id ? { id: record.id, label } : { id: record.id });
+    models.push(
+      label !== undefined && label !== record.id ? { id: record.id, label } : { id: record.id },
+    );
   }
   return models;
 }
@@ -142,7 +153,10 @@ export async function startModelGateway(input: {
     };
   }
 
-  function routeFor(modelId: string | undefined, protocol: ModelProviderProtocol): ModelProviderConfig | null {
+  function routeFor(
+    modelId: string | undefined,
+    protocol: ModelProviderProtocol,
+  ): ModelProviderConfig | null {
     if (modelId) {
       for (const entry of input.providers.listPool()) {
         if (entry.modelId !== modelId) continue;
@@ -208,7 +222,9 @@ export async function startModelGateway(input: {
         (res) => {
           const chunks: Buffer[] = [];
           res.on("data", (chunk: Buffer) => chunks.push(chunk));
-          res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks) }));
+          res.on("end", () =>
+            resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks) }),
+          );
         },
       );
       req.on("error", reject);
@@ -235,7 +251,9 @@ export async function startModelGateway(input: {
   const server = createServer((request, response) => {
     void (async () => {
       if (!authorize(request.headers.authorization, request.headers["x-api-key"])) {
-        writeJson(response, 401, { error: { code: "UNAUTHORIZED", message: "Gateway token is invalid" } });
+        writeJson(response, 401, {
+          error: { code: "UNAUTHORIZED", message: "Gateway token is invalid" },
+        });
         return;
       }
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
@@ -251,7 +269,9 @@ export async function startModelGateway(input: {
         return;
       }
       if (protocol === null) {
-        writeJson(response, 404, { error: { code: "UNKNOWN_ROUTE", message: `Unknown Gateway route: ${url.pathname}` } });
+        writeJson(response, 404, {
+          error: { code: "UNKNOWN_ROUTE", message: `Unknown Gateway route: ${url.pathname}` },
+        });
         return;
       }
 
@@ -268,7 +288,10 @@ export async function startModelGateway(input: {
       const provider = routeFor(modelId, protocol);
       if (!provider) {
         writeJson(response, 503, {
-          error: { code: "NO_MODEL_PROVIDER", message: "No model provider is configured for this request" },
+          error: {
+            code: "NO_MODEL_PROVIDER",
+            message: "No model provider is configured for this request",
+          },
         });
         return;
       }
@@ -276,7 +299,10 @@ export async function startModelGateway(input: {
     })().catch((error: unknown) => {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       writeJson(response, statusCode, {
-        error: { code: "GATEWAY_ERROR", message: error instanceof Error ? error.message : String(error) },
+        error: {
+          code: "GATEWAY_ERROR",
+          message: error instanceof Error ? error.message : String(error),
+        },
       });
     });
   });
@@ -314,16 +340,26 @@ export async function startModelGateway(input: {
     const startedAt = Date.now();
     try {
       const timeout = new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => reject(new Error("Provider test timed out")), TEST_TIMEOUT_MS);
+        const timer = setTimeout(
+          () => reject(new Error("Provider test timed out")),
+          TEST_TIMEOUT_MS,
+        );
         timer.unref?.();
       });
-      const { status } = await Promise.race([requestUpstream(provider, "GET", "/v1/models"), timeout]);
+      const { status } = await Promise.race([
+        requestUpstream(provider, "GET", "/v1/models"),
+        timeout,
+      ]);
       const latencyMs = Date.now() - startedAt;
       if (status >= 200 && status < 300) return { ok: true, latencyMs };
       return { ok: false, latencyMs, error: `HTTP ${status}` };
     } catch (error) {
       const latencyMs = Date.now() - startedAt;
-      return { ok: false, latencyMs, error: error instanceof Error ? error.message : String(error) };
+      return {
+        ok: false,
+        latencyMs,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 

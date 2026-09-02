@@ -280,8 +280,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   aboutOpenSource: "codexhost is an open-source project. The source code is available at:",
   aboutStarCallout: "⭐ If this project helps you, please give us a Star! ⭐",
   aboutRepository: "Open-source repository",
-  agentsDescription:
-    "Choose which agents appear in the agent picker. Codex is always available.",
+  agentsDescription: "Choose which agents appear in the agent picker. Codex is always available.",
   agentsReset: "Reset to Default",
   modelServicesDescription:
     "Configure the sources models come from, grouped by protocol. Every source is reached through the local codexhost gateway, so provider keys never leave this device.",
@@ -289,8 +288,10 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   modelServicesGatewayEndpointLabel: "Endpoint",
   modelServicesGatewayDefaultRouteLabel: "Default sources",
   modelServicesGatewayNotConfigured: "No source configured yet.",
-  modelServicesNewThreadNote: "Changes apply to new Threads. Restart the Host to update the Codex native agent.",
-  modelServicesProtocolOpenAiDescription: "OpenAI-compatible endpoints, including Codex Responses and hosted gateways.",
+  modelServicesNewThreadNote:
+    "Changes apply to new Threads. Restart the Host to update the Codex native agent.",
+  modelServicesProtocolOpenAiDescription:
+    "OpenAI-compatible endpoints, including Codex Responses and hosted gateways.",
   modelServicesProtocolAnthropicDescription: "Anthropic-compatible endpoints.",
   modelServicesProtocolOllamaDescription: "Local Ollama instances.",
   modelServicesProtocolLmstudioDescription: "Local LM Studio servers.",
@@ -315,7 +316,8 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   modelServicesTestFailed: "Failed",
   modelServicesModelsFetched: "Found",
   modelServicesPoolTitle: "Model Pool",
-  modelServicesPoolEmpty: "No models in the pool yet. Fetch models from a source and check the ones to route through it.",
+  modelServicesPoolEmpty:
+    "No models in the pool yet. Fetch models from a source and check the ones to route through it.",
   modelServicesCandidateRemove: "Remove from pool",
   modelServicesNoModels: "No models returned.",
   modelServicesNoProviders: "No sources configured for this protocol.",

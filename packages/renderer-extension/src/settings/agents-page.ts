@@ -139,10 +139,7 @@ export function createAgentsSettingsPage(
       const resetButton = document.createElement("button");
       resetButton.type = "button";
       resetButton.className = "settings-command-button settings-command-button--secondary";
-      resetButton.append(
-        createRendererSettingsIcon("undo", 16),
-        messages.agentsReset,
-      );
+      resetButton.append(createRendererSettingsIcon("undo", 16), messages.agentsReset);
       resetButton.addEventListener("click", () => {
         store.resetToDefault();
         for (const agent of EXTERNAL_AGENTS) {

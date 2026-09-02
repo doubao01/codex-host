@@ -72,14 +72,10 @@ function normalizedLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/gu, " ");
 }
 
-export function matchStrengthTier(
-  option: HarnessThinkingOption,
-): UnifiedStrengthTier | undefined {
+export function matchStrengthTier(option: HarnessThinkingOption): UnifiedStrengthTier | undefined {
   const normalized = normalizedLabel(option.label);
   return UNIFIED_STRENGTH_TIERS.find(
-    (tier) =>
-      tier.nativeIds.includes(option.id) ||
-      tier.nativeLabelMatches.includes(normalized),
+    (tier) => tier.nativeIds.includes(option.id) || tier.nativeLabelMatches.includes(normalized),
   );
 }
 
@@ -92,9 +88,7 @@ export function strengthTiersForOptions(
 ): StrengthTierMatch[] {
   const matches: StrengthTierMatch[] = [];
   for (const tier of UNIFIED_STRENGTH_TIERS) {
-    const option = options.find(
-      (candidate) => matchStrengthTier(candidate)?.key === tier.key,
-    );
+    const option = options.find((candidate) => matchStrengthTier(candidate)?.key === tier.key);
     if (option) matches.push({ tier, option });
   }
   return matches;
@@ -120,10 +114,6 @@ export function defaultThinkingOptionForModel(
     (candidate) => candidate.ref.id === model?.id,
   )?.supportedThinkingOptionIds;
   if (!supported) return undefined;
-  const options = catalog.thinkingOptions.filter((option) =>
-    supported.includes(option.id),
-  );
-  return (
-    options.find(({ id }) => id === catalog.defaultThinkingOptionId) ?? options[0]
-  );
+  const options = catalog.thinkingOptions.filter((option) => supported.includes(option.id));
+  return options.find(({ id }) => id === catalog.defaultThinkingOptionId) ?? options[0];
 }

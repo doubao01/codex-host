@@ -11,12 +11,7 @@ const nonBlankTextSchema = z.string().refine((value) => value.trim().length > 0,
   message: "Value must not be empty or whitespace",
 });
 
-export const modelProviderProtocolSchema = z.enum([
-  "openai",
-  "anthropic",
-  "ollama",
-  "lmstudio",
-]);
+export const modelProviderProtocolSchema = z.enum(["openai", "anthropic", "ollama", "lmstudio"]);
 
 export type ModelProviderProtocol = z.infer<typeof modelProviderProtocolSchema>;
 
@@ -24,16 +19,12 @@ export const modelProviderProtocols: readonly ModelProviderProtocol[] =
   modelProviderProtocolSchema.options;
 
 /** True for the local, OpenAI-compatible endpoints (Ollama / LM Studio). */
-export function isLocalModelProviderProtocol(
-  protocol: ModelProviderProtocol,
-): boolean {
+export function isLocalModelProviderProtocol(protocol: ModelProviderProtocol): boolean {
   return protocol === "ollama" || protocol === "lmstudio";
 }
 
 /** True for any protocol that speaks the OpenAI-compatible wire API. */
-export function isOpenAiCompatibleModelProviderProtocol(
-  protocol: ModelProviderProtocol,
-): boolean {
+export function isOpenAiCompatibleModelProviderProtocol(protocol: ModelProviderProtocol): boolean {
   return protocol === "openai" || isLocalModelProviderProtocol(protocol);
 }
 
@@ -141,9 +132,7 @@ export const modelProviderFetchModelsResultSchema = z
   })
   .strict();
 
-export type ModelProviderFetchModelsResult = z.infer<
-  typeof modelProviderFetchModelsResultSchema
->;
+export type ModelProviderFetchModelsResult = z.infer<typeof modelProviderFetchModelsResultSchema>;
 
 export const modelProviderTestResultSchema = z
   .object({

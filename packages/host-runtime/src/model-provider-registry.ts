@@ -170,7 +170,8 @@ export class ModelProviderRegistry {
       (existing) => existing.modelId === entry.modelId && existing.providerId === entry.providerId,
     );
     const pool = this.store.pool.filter(
-      (existing) => !(existing.modelId === entry.modelId && existing.providerId === entry.providerId),
+      (existing) =>
+        !(existing.modelId === entry.modelId && existing.providerId === entry.providerId),
     );
     // Re-checking an already pooled model keeps its label when none is given.
     pool.push(entry.label !== undefined ? entry : { ...entry, label: previous?.label });

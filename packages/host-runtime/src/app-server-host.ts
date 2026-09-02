@@ -117,10 +117,7 @@ import {
   type OfficialAppServerConnection,
 } from "./official-app-server-connection.js";
 import type { HostUpdateCoordinator } from "./update-coordinator.js";
-import {
-  defaultCodexConfigPath,
-  syncCodexGatewayProvider,
-} from "./codex-config-writer.js";
+import { defaultCodexConfigPath, syncCodexGatewayProvider } from "./codex-config-writer.js";
 import {
   MODEL_GATEWAY_ENDPOINT_ENV,
   MODEL_GATEWAY_TOKEN_ENV,

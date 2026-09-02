@@ -71,9 +71,7 @@ class FakeElement {
       return all.filter((element) => element.dataset.modelProtocolSection !== undefined);
     }
     if (selector === ".settings-model-pool") {
-      return all.filter((element) =>
-        element.className.split(" ").includes("settings-model-pool"),
-      );
+      return all.filter((element) => element.className.split(" ").includes("settings-model-pool"));
     }
     return [];
   }
@@ -197,9 +195,7 @@ const withGatewaySource = {
       baseUrl: "https://api.anthropic.com",
     },
   ],
-  pool: [
-    { modelId: "gpt-5", label: "GPT-5", providerId: gatewayId, protocol: "openai" as const },
-  ],
+  pool: [{ modelId: "gpt-5", label: "GPT-5", providerId: gatewayId, protocol: "openai" as const }],
   gatewayEndpoint: "http://127.0.0.1:54321",
 };
 
@@ -225,7 +221,9 @@ describe("Renderer Model Services settings page", () => {
     expect(
       descendants(content).filter(({ dataset }) => dataset.modelProtocolSection !== undefined),
     ).toHaveLength(4);
-    const cards = descendants(content).filter(({ dataset }) => dataset.modelProviderCard !== undefined);
+    const cards = descendants(content).filter(
+      ({ dataset }) => dataset.modelProviderCard !== undefined,
+    );
     expect(cards).toHaveLength(2);
     expect(visibleText(cards[0] as FakeElement)).toContain("My Gateway");
     expect(
@@ -237,7 +235,9 @@ describe("Renderer Model Services settings page", () => {
         .filter(({ dataset }) => dataset.modelProviderBaseUrl !== undefined)
         .some(({ textContent }) => textContent === "https://api.anthropic.com"),
     ).toBe(true);
-    const poolEntry = descendants(content).find(({ dataset }) => dataset.modelPoolEntry !== undefined);
+    const poolEntry = descendants(content).find(
+      ({ dataset }) => dataset.modelPoolEntry !== undefined,
+    );
     expect(poolEntry).toBeDefined();
     expect(visibleText(poolEntry as FakeElement)).toContain("GPT-5");
 
@@ -360,7 +360,9 @@ describe("Renderer Model Services settings page", () => {
     candidate.dispatch("change");
 
     await vi.waitFor(() => {
-      const entry = descendants(content).find(({ dataset }) => dataset.modelPoolEntry !== undefined);
+      const entry = descendants(content).find(
+        ({ dataset }) => dataset.modelPoolEntry !== undefined,
+      );
       expect(entry).toBeDefined();
     });
     expect(visibleText(content)).toContain("GPT-5");
@@ -411,8 +413,7 @@ describe("Renderer Model Services settings page", () => {
 
     const remove = descendants(content).find(
       ({ tagName, className }) =>
-        tagName === "button" &&
-        className.split(" ").includes("settings-model-provider-remove"),
+        tagName === "button" && className.split(" ").includes("settings-model-provider-remove"),
     );
     if (!remove) throw new Error("Remove source button is not rendered");
     remove.dispatch("click");

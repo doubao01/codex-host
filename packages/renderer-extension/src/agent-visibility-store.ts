@@ -13,9 +13,7 @@ const EXTERNAL_AGENTS: readonly ExternalRendererAgent[] = KNOWN_RENDERER_AGENTS.
   (agent): agent is ExternalRendererAgent => agent !== "codex",
 );
 
-function readStorage(
-  storage: Pick<Storage, "getItem"> | null,
-): Record<string, boolean> | null {
+function readStorage(storage: Pick<Storage, "getItem"> | null): Record<string, boolean> | null {
   if (!storage) return null;
   try {
     const raw = storage.getItem(AGENT_VISIBILITY_STORAGE_KEY);

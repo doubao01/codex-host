@@ -11,9 +11,7 @@ import {
   writeCodexGatewayProvider,
 } from "../src/codex-config-writer.js";
 
-async function withConfigDirectory(
-  run: (configPath: string) => Promise<void>,
-): Promise<void> {
+async function withConfigDirectory(run: (configPath: string) => Promise<void>): Promise<void> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "codexhost-config-"));
   try {
     await run(path.join(directory, "config.toml"));
@@ -85,9 +83,9 @@ describe("Codex config writer", () => {
         name.endsWith(".bak"),
       );
       expect(backups).toHaveLength(1);
-      await expect(readFile(path.join(path.dirname(configPath), backups[0] ?? ""), "utf8")).resolves.toContain(
-        "model_providers.other",
-      );
+      await expect(
+        readFile(path.join(path.dirname(configPath), backups[0] ?? ""), "utf8"),
+      ).resolves.toContain("model_providers.other");
     });
   });
 

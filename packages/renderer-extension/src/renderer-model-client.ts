@@ -324,7 +324,9 @@ export function createRendererModelClient(
       const result = await manager.sendRequest(MODEL_PROVIDER_POOL_ADD_METHOD, params);
       return modelProviderListResultSchema.parse(result);
     },
-    async removeModelPoolEntry(input: ModelPoolEntryRemoveParams): Promise<ModelProviderListResult> {
+    async removeModelPoolEntry(
+      input: ModelPoolEntryRemoveParams,
+    ): Promise<ModelProviderListResult> {
       const params = modelPoolEntryRemoveParamsSchema.parse(input);
       const result = await manager.sendRequest(MODEL_PROVIDER_POOL_REMOVE_METHOD, params);
       return modelProviderListResultSchema.parse(result);
