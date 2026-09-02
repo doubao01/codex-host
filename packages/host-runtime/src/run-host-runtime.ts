@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UPDATE_RUNTIME_ENV } from "@codexhost/update-manager";
-import { isOpenAiCompatibleModelProviderProtocol } from "@codexhost/shared-contracts";
+import { isOpenAiWireFormat } from "@codexhost/shared-contracts";
 
 import {
   createExternalHarnessAdapters,
@@ -122,7 +122,7 @@ async function prepareDelegationRuntime(input: {
   const configPath = defaultCodexConfigPath(input.environment);
   const hasOpenAiProvider = modelProviderRegistry
     .snapshot()
-    .providers.some((provider) => isOpenAiCompatibleModelProviderProtocol(provider.protocol));
+    .providers.some((provider) => isOpenAiWireFormat(provider.wireFormat));
   await syncCodexGatewayProvider({
     configPath,
     hasOpenAiProvider,

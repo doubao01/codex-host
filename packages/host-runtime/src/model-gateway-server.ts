@@ -12,12 +12,13 @@ import { Agent as HttpAgent } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import {
-  isOpenAiCompatibleModelProviderProtocol,
+  isAnthropicWireFormat,
+  isOpenAiWireFormat,
   type ModelPoolEntry,
   type ModelProviderConfig,
   type ModelProviderFetchModelsResult,
-  type ModelProviderProtocol,
   type ModelProviderTestResult,
+  type ModelProviderWireFormat,
 } from "@codexhost/shared-contracts";
 
 const MAX_FORWARD_BODY_BYTES = 32 * 1024 * 1024;
@@ -30,7 +31,13 @@ export const MODEL_GATEWAY_TOKEN_ENV = "CODEXHOST_MODEL_GATEWAY_TOKEN";
 export interface ModelGatewayProviderSource {
   getProvider(id: string): ModelProviderConfig | null;
   listPool(): readonly ModelPoolEntry[];
-  defaultProviderForProtocol(protocol: ModelProviderProtocol): ModelProviderConfig | null;
+  defaultProviderForWireFormat(wireFormat: ModelProviderWireFormat): ModelProviderConfig | null;
+  /**
+   * All configured providers in configuration order, including secrets.
+   * Optional so minimal sources keep single-candidate (no fail-over) behavior;
+   * the production registry provides it for cross-provider retry.
+   */
+  listProvidersForRouting?(): readonly ModelProviderConfig[];
 }
 
 export interface ModelGateway {
@@ -85,17 +92,30 @@ function parseModelList(body: Buffer): { id: string; label?: string }[] {
   return models;
 }
 
+/** Configured custom headers with a non-empty stored value. */
+function customHeaders(provider: ModelProviderConfig): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const header of provider.headers ?? []) {
+    if (header.value !== undefined && header.value.length > 0) {
+      headers[header.name.toLowerCase()] = header.value;
+    }
+  }
+  return headers;
+}
+
 function authHeaders(provider: ModelProviderConfig): Record<string, string> {
-  if (provider.protocol === "anthropic") {
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-      "anthropic-version": "2023-06-01",
-    };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...customHeaders(provider),
+  };
+  if (isAnthropicWireFormat(provider.wireFormat)) {
+    headers["anthropic-version"] = "2023-06-01";
     if (provider.apiKey) headers["x-api-key"] = provider.apiKey;
+    else delete headers["x-api-key"];
     return headers;
   }
-  const headers: Record<string, string> = { "content-type": "application/json" };
   if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`;
+  else delete headers.authorization;
   return headers;
 }
 
@@ -107,7 +127,8 @@ function forwardHeaders(
   delete headers.host;
   delete headers.connection;
   delete headers["keep-alive"];
-  if (provider.protocol === "anthropic") {
+  Object.assign(headers, customHeaders(provider));
+  if (isAnthropicWireFormat(provider.wireFormat)) {
     delete headers.authorization;
     delete headers["x-api-key"];
     if (provider.apiKey) headers["x-api-key"] = provider.apiKey;
@@ -121,6 +142,13 @@ function forwardHeaders(
 
 function upstreamUrl(provider: ModelProviderConfig, path: string): URL {
   return new URL(`${provider.baseUrl.replace(/\/+$/u, "")}${path}`);
+}
+
+/** Models listing path: honor an explicit `/models` path override, else the default. */
+function modelsPath(provider: ModelProviderConfig): string {
+  return provider.path !== undefined && provider.path.endsWith("/models")
+    ? provider.path
+    : "/v1/models";
 }
 
 export async function startModelGateway(input: {
@@ -153,59 +181,121 @@ export async function startModelGateway(input: {
     };
   }
 
-  function routeFor(
+  /** Wire formats are interchangeable within the OpenAI-compatible group. */
+  function wireFormatsCompatible(
+    a: ModelProviderWireFormat,
+    b: ModelProviderWireFormat,
+  ): boolean {
+    return isOpenAiWireFormat(a) === isOpenAiWireFormat(b);
+  }
+
+  /** Pool-exact provider for a model, within the request's OpenAI-compatible group. */
+  function poolProviderFor(
     modelId: string | undefined,
-    protocol: ModelProviderProtocol,
+    wireFormat: ModelProviderWireFormat,
   ): ModelProviderConfig | null {
     if (modelId) {
       for (const entry of input.providers.listPool()) {
         if (entry.modelId !== modelId) continue;
-        if (
-          isOpenAiCompatibleModelProviderProtocol(entry.protocol) !==
-          isOpenAiCompatibleModelProviderProtocol(protocol)
-        ) {
-          continue;
-        }
+        if (!wireFormatsCompatible(entry.wireFormat, wireFormat)) continue;
         const provider = input.providers.getProvider(entry.providerId);
         if (provider) return provider;
       }
     }
-    return input.providers.defaultProviderForProtocol(protocol);
+    return null;
   }
 
-  function forwardStream(
+  /**
+   * Ordered retry candidates: the pool-exact provider first, then every
+   * compatible provider in configuration order (deduplicated). The wire-format
+   * default is the first compatible configured provider, so it is naturally
+   * covered when no pool entry matches.
+   */
+  function candidatesFor(
+    modelId: string | undefined,
+    wireFormat: ModelProviderWireFormat,
+  ): ModelProviderConfig[] {
+    const routed = poolProviderFor(modelId, wireFormat);
+    const compatible = (input.providers.listProvidersForRouting?.() ?? []).filter((provider) =>
+      wireFormatsCompatible(provider.wireFormat, wireFormat),
+    );
+    const candidates: ModelProviderConfig[] = [];
+    const seen = new Set<string>();
+    if (routed) {
+      candidates.push(routed);
+      seen.add(routed.id);
+    }
+    if (compatible.length === 0) {
+      // Sources without an enumerable routing list fall back to the wire-format default.
+      const fallback = input.providers.defaultProviderForWireFormat(wireFormat);
+      if (fallback && !seen.has(fallback.id)) candidates.push(fallback);
+      return candidates;
+    }
+    for (const provider of compatible) {
+      if (seen.has(provider.id)) continue;
+      candidates.push(provider);
+      seen.add(provider.id);
+    }
+    return candidates;
+  }
+
+  /** True for upstream statuses that warrant trying another provider. */
+  function retryableStatus(status: number): boolean {
+    return status === 429 || status >= 500;
+  }
+
+  /**
+   * Forwards one request to one provider and resolves with the outcome before
+   * any bytes reach the client, so the caller can fall over to the next
+   * candidate. Retryable statuses (429 / 5xx) and connection errors discard the
+   * upstream body and resolve without touching the response; anything else
+   * commits the response (writeHead + pipe) and is final.
+   */
+  function attemptForward(
     response: ServerResponse,
     provider: ModelProviderConfig,
     path: string,
     body: Buffer,
     incomingHeaders: IncomingHttpHeaders,
-  ): void {
-    const url = upstreamUrl(provider, path);
-    const transport = url.protocol === "https:" ? httpsRequest : httpRequest;
-    const upstream = transport(
-      url,
-      {
-        method: "POST",
-        headers: forwardHeaders(incomingHeaders, provider),
-        agent: agentFor(url.protocol),
-      },
-      (upstreamResponse) => {
-        const status = upstreamResponse.statusCode ?? 502;
-        const headers = normalizeHeaders(upstreamResponse.headers);
-        delete headers.connection;
-        delete headers["keep-alive"];
-        response.writeHead(status, headers);
-        upstreamResponse.pipe(response);
-      },
-    );
-    upstream.on("error", (error: Error) => {
-      if (response.headersSent) {
-        response.destroy();
-        return;
-      }
-      writeJson(response, 502, { error: { code: "UPSTREAM_ERROR", message: error.message } });
+  ): Promise<
+    | { kind: "forwarded" }
+    | { kind: "status"; status: number }
+    | { kind: "network"; message: string }
+  > {
+    return new Promise((resolve) => {
+      const url = upstreamUrl(provider, path);
+      const transport = url.protocol === "https:" ? httpsRequest : httpRequest;
+      const upstream = transport(
+        url,
+        {
+          method: "POST",
+          headers: forwardHeaders(incomingHeaders, provider),
+          agent: agentFor(url.protocol),
+        },
+        (upstreamResponse) => {
+          const status = upstreamResponse.statusCode ?? 502;
+          if (retryableStatus(status) && !response.headersSent) {
+            upstreamResponse.resume(); // discard the body so the keep-alive slot frees up
+            resolve({ kind: "status", status });
+            return;
+          }
+          const headers = normalizeHeaders(upstreamResponse.headers);
+          delete headers.connection;
+          delete headers["keep-alive"];
+          response.writeHead(status, headers);
+          upstreamResponse.pipe(response);
+          resolve({ kind: "forwarded" });
+        },
+      );
+      upstream.on("error", (error: Error) => {
+        if (response.headersSent) {
+          response.destroy();
+          return;
+        }
+        resolve({ kind: "network", message: error.message });
+      });
+      upstream.end(body);
     });
-    upstream.end(body);
   }
 
   async function requestUpstream(
@@ -257,18 +347,20 @@ export async function startModelGateway(input: {
         return;
       }
       const url = new URL(request.url ?? "/", "http://gateway.invalid");
-      const protocol: ModelProviderProtocol | null =
+      const wireFormat: ModelProviderWireFormat | null =
         url.pathname === "/v1/messages"
           ? "anthropic"
-          : url.pathname === "/v1/responses" || url.pathname === "/v1/chat/completions"
-            ? "openai"
-            : null;
+          : url.pathname === "/v1/responses"
+            ? "openai-responses"
+            : url.pathname === "/v1/chat/completions"
+              ? "openai-chat"
+              : null;
 
       if (request.method === "GET" && url.pathname === "/v1/models") {
         writeJson(response, 200, poolModelsForPath());
         return;
       }
-      if (protocol === null) {
+      if (wireFormat === null) {
         writeJson(response, 404, {
           error: { code: "UNKNOWN_ROUTE", message: `Unknown Gateway route: ${url.pathname}` },
         });
@@ -285,8 +377,8 @@ export async function startModelGateway(input: {
         // Forward the body anyway; the upstream may reject it with a clearer error.
       }
 
-      const provider = routeFor(modelId, protocol);
-      if (!provider) {
+      const candidates = candidatesFor(modelId, wireFormat);
+      if (candidates.length === 0) {
         writeJson(response, 503, {
           error: {
             code: "NO_MODEL_PROVIDER",
@@ -295,7 +387,33 @@ export async function startModelGateway(input: {
         });
         return;
       }
-      forwardStream(response, provider, url.pathname, body, request.headers);
+      let lastFailure:
+        | { kind: "status"; status: number }
+        | { kind: "network"; message: string }
+        | null = null;
+      for (const provider of candidates) {
+        const forwardPath =
+          provider.path !== undefined && provider.path.length > 0 ? provider.path : url.pathname;
+        const outcome = await attemptForward(
+          response,
+          provider,
+          forwardPath,
+          body,
+          request.headers,
+        );
+        if (outcome.kind === "forwarded") return;
+        lastFailure = outcome;
+      }
+      // Every compatible provider failed before any bytes reached the client.
+      const message =
+        lastFailure?.kind === "network"
+          ? `All model providers failed: ${lastFailure.message}`
+          : lastFailure !== null
+            ? `All model providers failed (last HTTP ${lastFailure.status})`
+            : "No model provider is available for this request";
+      writeJson(response, 502, {
+        error: { code: "ALL_PROVIDERS_FAILED", message, attempted: candidates.length },
+      });
     })().catch((error: unknown) => {
       const statusCode = (error as { statusCode?: number }).statusCode ?? 500;
       writeJson(response, statusCode, {
@@ -327,7 +445,7 @@ export async function startModelGateway(input: {
   async function fetchModels(providerId: string): Promise<ModelProviderFetchModelsResult> {
     const provider = input.providers.getProvider(providerId);
     if (!provider) throw new Error(`Unknown model provider: ${providerId}`);
-    const { status, body } = await requestUpstream(provider, "GET", "/v1/models");
+    const { status, body } = await requestUpstream(provider, "GET", modelsPath(provider));
     if (status < 200 || status >= 300) {
       throw new Error(`Failed to fetch models (HTTP ${status})`);
     }
@@ -347,7 +465,7 @@ export async function startModelGateway(input: {
         timer.unref?.();
       });
       const { status } = await Promise.race([
-        requestUpstream(provider, "GET", "/v1/models"),
+        requestUpstream(provider, "GET", modelsPath(provider)),
         timeout,
       ]);
       const latencyMs = Date.now() - startedAt;

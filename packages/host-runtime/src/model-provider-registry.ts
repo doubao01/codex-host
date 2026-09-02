@@ -11,12 +11,13 @@ import {
   type ModelPoolEntryRemoveParams,
   type ModelProviderConfig,
   type ModelProviderDefaultRoute,
+  type ModelProviderHeader,
   type ModelProviderId,
-  type ModelProviderProtocol,
   type ModelProviderSaveParams,
+  type ModelProviderWireFormat,
 } from "@codexhost/shared-contracts";
 
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 
 const modelProviderStoreSchema = z
   .object({
@@ -26,9 +27,98 @@ const modelProviderStoreSchema = z
   })
   .strict();
 
+/** Pre-wire-format store layout; migrated to v2 on load. */
+const modelProviderStoreSchemaV1 = z
+  .object({
+    version: z.literal(1),
+    providers: z.array(
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          protocol: z.enum(["openai", "anthropic", "ollama", "lmstudio"]),
+          baseUrl: z.string(),
+          apiKey: z.string().optional(),
+          hasApiKey: z.boolean().optional(),
+        })
+        .strict(),
+    ),
+    pool: z.array(
+      z
+        .object({
+          modelId: z.string(),
+          label: z.string().optional(),
+          providerId: z.string(),
+          protocol: z.enum(["openai", "anthropic", "ollama", "lmstudio"]),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 type ModelProviderStore = z.infer<typeof modelProviderStoreSchema>;
 
+type ModelProviderStoreV1 = z.infer<typeof modelProviderStoreSchemaV1>;
+
+/** Un-normalized v1 migration shape; the ids are re-validated on the way out. */
+type ModelProviderStoreMigrated = {
+  version: typeof STORE_VERSION;
+  providers: Array<{
+    id: string;
+    name: string;
+    wireFormat: ModelProviderWireFormat;
+    baseUrl: string;
+    apiKey?: string;
+  }>;
+  pool: Array<{
+    modelId: string;
+    label?: string;
+    providerId: string;
+    wireFormat: ModelProviderWireFormat;
+  }>;
+};
+
+const V1_WIRE_FORMAT: Readonly<Record<"openai" | "anthropic", ModelProviderWireFormat>> = {
+  openai: "openai-chat",
+  anthropic: "anthropic",
+};
+
+/** Converts a v1 store; local sources (Ollama / LM Studio) were removed. */
+function migrateV1(store: ModelProviderStoreV1): ModelProviderStoreMigrated {
+  const keptProtocols = new Set(["openai", "anthropic"]);
+  const providers = store.providers
+    .filter((provider) => keptProtocols.has(provider.protocol))
+    .map((provider) => ({
+      id: provider.id,
+      name: provider.name,
+      wireFormat: V1_WIRE_FORMAT[provider.protocol as "openai" | "anthropic"],
+      baseUrl: provider.baseUrl,
+      ...(provider.apiKey !== undefined && provider.apiKey.length > 0 ? { apiKey: provider.apiKey } : {}),
+    }));
+  const keptIds = new Set(providers.map((provider) => provider.id));
+  const pool = store.pool
+    .filter(
+      (entry) => keptIds.has(entry.providerId) && keptProtocols.has(entry.protocol),
+    )
+    .map((entry) => ({
+      modelId: entry.modelId,
+      ...(entry.label !== undefined ? { label: entry.label } : {}),
+      providerId: entry.providerId,
+      wireFormat: V1_WIRE_FORMAT[entry.protocol as "openai" | "anthropic"],
+    }));
+  return { version: STORE_VERSION, providers, pool };
+}
+
 function parseStore(value: unknown): ModelProviderStore {
+  if (value !== null && typeof value === "object" && (value as { version?: unknown }).version === 1) {
+    const v1 = modelProviderStoreSchemaV1.safeParse(value);
+    if (v1.success) {
+      const migrated = modelProviderStoreSchema.safeParse(migrateV1(v1.data));
+      if (migrated.success) return migrated.data;
+    }
+    // A corrupt v1 file should not prevent startup; fall back to empty.
+    return emptyStore();
+  }
   const parsed = modelProviderStoreSchema.safeParse(value);
   if (parsed.success) return parsed.data;
   if (parsed.error.issues.some((issue) => issue.path[0] === "version")) {
@@ -46,10 +136,49 @@ function redactProvider(provider: ModelProviderConfig): ModelProviderConfig {
   return {
     id: provider.id,
     name: provider.name,
-    protocol: provider.protocol,
+    wireFormat: provider.wireFormat,
     baseUrl: provider.baseUrl,
+    ...(provider.path !== undefined && provider.path.length > 0 ? { path: provider.path } : {}),
     ...(provider.apiKey !== undefined && provider.apiKey.length > 0 ? { hasApiKey: true } : {}),
+    ...(provider.headers !== undefined && provider.headers.length > 0
+      ? {
+          headers: provider.headers.map((header) => ({
+            name: header.name,
+            hasValue: header.value !== undefined && header.value.length > 0,
+          })),
+        }
+      : {}),
   };
+}
+
+/**
+ * Merges submitted headers against the stored ones: an omitted `value` keeps
+ * the stored value for the same name, a non-empty `value` replaces it, and an
+ * empty-string `value` removes the header entirely.
+ */
+function mergeHeaders(
+  submitted: ModelProviderHeader[] | undefined,
+  stored: readonly ModelProviderHeader[] | undefined,
+): { name: string; value: string }[] {
+  if (submitted === undefined) {
+    return (stored ?? []).map((header) => ({
+      name: header.name,
+      value: header.value ?? "",
+    }));
+  }
+  const result: { name: string; value: string }[] = [];
+  for (const header of submitted) {
+    if (header.value === undefined) {
+      const previous = stored?.find((candidate) => candidate.name === header.name);
+      if (previous?.value !== undefined && previous.value.length > 0) {
+        result.push({ name: header.name, value: previous.value });
+      }
+    } else if (header.value.length > 0) {
+      result.push({ name: header.name, value: header.value });
+    }
+    // An empty-string value clears the stored header.
+  }
+  return result;
 }
 
 export function defaultModelProviderRegistryPath(environment: NodeJS.ProcessEnv): string {
@@ -79,7 +208,14 @@ export class ModelProviderRegistry {
   async initialize(): Promise<void> {
     try {
       const contents = await this.fileSystem.readFile(this.registryPath, "utf8");
-      this.store = parseStore(JSON.parse(contents));
+      const parsed = JSON.parse(contents);
+      const fromV1 =
+        parsed !== null &&
+        typeof parsed === "object" &&
+        (parsed as { version?: unknown }).version === 1;
+      this.store = parseStore(parsed);
+      // A v1 store is upgraded in memory; write the migration back exactly once.
+      if (fromV1) await this.#persist(this.store);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         this.store = emptyStore();
@@ -90,7 +226,7 @@ export class ModelProviderRegistry {
     }
   }
 
-  /** Providers with the API key redacted, plus the current Model Pool. */
+  /** Providers with secrets redacted (API keys, header values), plus the Model Pool. */
   snapshot(): ModelProviderRegistrySnapshot {
     return {
       providers: this.store.providers.map(redactProvider),
@@ -98,9 +234,14 @@ export class ModelProviderRegistry {
     };
   }
 
-  /** Full provider (including the stored API key) for host-side routing only. */
+  /** Full provider (including stored secrets) for host-side routing only. */
   getProvider(id: string): ModelProviderConfig | null {
     return this.store.providers.find((provider) => provider.id === id) ?? null;
+  }
+
+  /** All configured providers in configuration order, including secrets, for host-side routing only. */
+  listProvidersForRouting(): readonly ModelProviderConfig[] {
+    return this.store.providers;
   }
 
   /** Current Model Pool entries (routes from a model to its provider). */
@@ -108,19 +249,19 @@ export class ModelProviderRegistry {
     return this.store.pool;
   }
 
-  /** Default source for a protocol: the first configured provider of that protocol. */
-  defaultProviderForProtocol(protocol: ModelProviderProtocol): ModelProviderConfig | null {
-    return this.store.providers.find((provider) => provider.protocol === protocol) ?? null;
+  /** Default source for a wire format: the first configured provider of that format. */
+  defaultProviderForWireFormat(wireFormat: ModelProviderWireFormat): ModelProviderConfig | null {
+    return this.store.providers.find((provider) => provider.wireFormat === wireFormat) ?? null;
   }
 
-  /** Default route per protocol: the first configured provider of that protocol. */
+  /** Default route per wire format: the first configured provider of that format. */
   listDefaultRoutes(): ModelProviderDefaultRoute[] {
-    const seen = new Set<ModelProviderProtocol>();
+    const seen = new Set<ModelProviderWireFormat>();
     const routes: ModelProviderDefaultRoute[] = [];
     for (const provider of this.store.providers) {
-      if (seen.has(provider.protocol)) continue;
-      seen.add(provider.protocol);
-      routes.push({ protocol: provider.protocol, providerId: provider.id });
+      if (seen.has(provider.wireFormat)) continue;
+      seen.add(provider.wireFormat);
+      routes.push({ wireFormat: provider.wireFormat, providerId: provider.id });
     }
     return routes;
   }
@@ -135,12 +276,15 @@ export class ModelProviderRegistry {
     } else {
       apiKey = input.apiKey;
     }
+    const headers = mergeHeaders(input.headers, existing?.headers);
     const next: ModelProviderConfig = {
       id: input.id,
       name: input.name,
-      protocol: input.protocol,
+      wireFormat: input.wireFormat,
       baseUrl: input.baseUrl,
+      ...(input.path !== undefined && input.path.length > 0 ? { path: input.path } : {}),
       ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
+      ...(headers.length > 0 ? { headers } : {}),
     };
     const providers = this.store.providers.filter((provider) => provider.id !== input.id);
     providers.push(next);
@@ -164,7 +308,8 @@ export class ModelProviderRegistry {
       modelId: input.modelId,
       ...(input.label !== undefined && input.label.length > 0 ? { label: input.label } : {}),
       providerId: provider.id,
-      protocol: provider.protocol,
+      wireFormat: provider.wireFormat,
+      ...(input.contextWindow !== undefined ? { contextWindow: input.contextWindow } : {}),
     });
     const previous = this.store.pool.find(
       (existing) => existing.modelId === entry.modelId && existing.providerId === entry.providerId,

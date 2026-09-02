@@ -41,7 +41,7 @@ import {
   threadOwnershipListParamsSchema,
   threadOwnershipListResultSchema,
   MODEL_PROVIDER_ERROR_MAX_LENGTH,
-  isOpenAiCompatibleModelProviderProtocol,
+  isOpenAiWireFormat,
   modelGatewayStatusResultSchema,
   modelPoolEntryAddParamsSchema,
   modelPoolEntryRemoveParamsSchema,
@@ -3813,7 +3813,7 @@ export class AppServerHost {
     const configPath = defaultCodexConfigPath(this.#options.environment ?? process.env);
     const hasOpenAiProvider = this.#modelProviders.registry
       .snapshot()
-      .providers.some((provider) => isOpenAiCompatibleModelProviderProtocol(provider.protocol));
+      .providers.some((provider) => isOpenAiWireFormat(provider.wireFormat));
     await syncCodexGatewayProvider({
       configPath,
       hasOpenAiProvider,

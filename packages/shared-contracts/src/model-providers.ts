@@ -6,26 +6,41 @@ export const MODEL_PROVIDER_BASE_URL_MAX_LENGTH = 512;
 export const MODEL_PROVIDER_API_KEY_MAX_LENGTH = 512;
 export const MODEL_PROVIDER_MODEL_ID_MAX_LENGTH = 256;
 export const MODEL_PROVIDER_ERROR_MAX_LENGTH = 512;
+export const MODEL_PROVIDER_HEADER_NAME_MAX_LENGTH = 128;
+export const MODEL_PROVIDER_HEADER_VALUE_MAX_LENGTH = MODEL_PROVIDER_API_KEY_MAX_LENGTH;
+export const MODEL_PROVIDER_PATH_MAX_LENGTH = MODEL_PROVIDER_BASE_URL_MAX_LENGTH;
 
 const nonBlankTextSchema = z.string().refine((value) => value.trim().length > 0, {
   message: "Value must not be empty or whitespace",
 });
 
-export const modelProviderProtocolSchema = z.enum(["openai", "anthropic", "ollama", "lmstudio"]);
+/** The wire API a provider speaks; determines the request path and auth style. */
+export const modelProviderWireFormatSchema = z.enum([
+  "openai-chat",
+  "openai-responses",
+  "anthropic",
+]);
 
-export type ModelProviderProtocol = z.infer<typeof modelProviderProtocolSchema>;
+export type ModelProviderWireFormat = z.infer<typeof modelProviderWireFormatSchema>;
 
-export const modelProviderProtocols: readonly ModelProviderProtocol[] =
-  modelProviderProtocolSchema.options;
+export const modelProviderWireFormats: readonly ModelProviderWireFormat[] =
+  modelProviderWireFormatSchema.options;
 
-/** True for the local, OpenAI-compatible endpoints (Ollama / LM Studio). */
-export function isLocalModelProviderProtocol(protocol: ModelProviderProtocol): boolean {
-  return protocol === "ollama" || protocol === "lmstudio";
+/** The default request path filled into `path` when a wire format is selected. */
+export function defaultModelProviderPath(wireFormat: ModelProviderWireFormat): string {
+  if (wireFormat === "anthropic") return "/v1/messages";
+  if (wireFormat === "openai-responses") return "/v1/responses";
+  return "/v1/chat/completions";
 }
 
-/** True for any protocol that speaks the OpenAI-compatible wire API. */
-export function isOpenAiCompatibleModelProviderProtocol(protocol: ModelProviderProtocol): boolean {
-  return protocol === "openai" || isLocalModelProviderProtocol(protocol);
+/** True for the Anthropic Messages wire format (`x-api-key` auth). */
+export function isAnthropicWireFormat(wireFormat: ModelProviderWireFormat): boolean {
+  return wireFormat === "anthropic";
+}
+
+/** True for any OpenAI-compatible wire format (Chat Completions / Responses). */
+export function isOpenAiWireFormat(wireFormat: ModelProviderWireFormat): boolean {
+  return wireFormat === "openai-chat" || wireFormat === "openai-responses";
 }
 
 export const modelProviderIdSchema = nonBlankTextSchema
@@ -40,18 +55,42 @@ export const modelProviderBaseUrlSchema = nonBlankTextSchema
   .url("Base URL must be an absolute http(s) URL");
 
 /**
- * Provider source configuration. `apiKey` appears only in save/test requests;
- * host list responses omit it and report `hasApiKey` instead so the renderer
- * never receives the secret. An empty-string `apiKey` clears the stored key.
+ * A custom request header. `value` appears only in save/test requests; host
+ * list responses omit it and report `hasValue` instead so the renderer never
+ * receives the secret (mirrors the `apiKey` redaction). An empty-string value
+ * clears the stored header; an omitted value keeps the stored one.
+ */
+export const modelProviderHeaderSchema = z
+  .object({
+    name: nonBlankTextSchema.max(MODEL_PROVIDER_HEADER_NAME_MAX_LENGTH),
+    value: z.string().max(MODEL_PROVIDER_HEADER_VALUE_MAX_LENGTH).optional(),
+    hasValue: z.boolean().optional(),
+  })
+  .strict();
+
+export type ModelProviderHeader = z.infer<typeof modelProviderHeaderSchema>;
+
+/**
+ * Provider source configuration. `apiKey` and header `value`s appear only in
+ * save/test requests; host list responses omit them and report `hasApiKey` /
+ * `hasValue` instead so the renderer never receives the secrets.
+ * `path` is the exact request path (selected wire formats fill a default, the
+ * user may override it).
  */
 export const modelProviderConfigSchema = z
   .object({
     id: modelProviderIdSchema,
     name: nonBlankTextSchema.max(MODEL_PROVIDER_NAME_MAX_LENGTH),
-    protocol: modelProviderProtocolSchema,
+    wireFormat: modelProviderWireFormatSchema,
     baseUrl: modelProviderBaseUrlSchema,
+    path: z
+      .string()
+      .startsWith("/", "Path must start with /")
+      .max(MODEL_PROVIDER_PATH_MAX_LENGTH)
+      .optional(),
     apiKey: z.string().max(MODEL_PROVIDER_API_KEY_MAX_LENGTH).optional(),
     hasApiKey: z.boolean().optional(),
+    headers: z.array(modelProviderHeaderSchema).optional(),
   })
   .strict();
 
@@ -63,7 +102,8 @@ export const modelPoolEntrySchema = z
     modelId: nonBlankTextSchema.max(MODEL_PROVIDER_MODEL_ID_MAX_LENGTH),
     label: nonBlankTextSchema.max(MODEL_PROVIDER_NAME_MAX_LENGTH).optional(),
     providerId: modelProviderIdSchema,
-    protocol: modelProviderProtocolSchema,
+    wireFormat: modelProviderWireFormatSchema,
+    contextWindow: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -86,6 +126,7 @@ export const modelPoolEntryAddParamsSchema = z
     modelId: nonBlankTextSchema.max(MODEL_PROVIDER_MODEL_ID_MAX_LENGTH),
     label: nonBlankTextSchema.max(MODEL_PROVIDER_NAME_MAX_LENGTH).optional(),
     providerId: modelProviderIdSchema,
+    contextWindow: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -102,7 +143,7 @@ export type ModelPoolEntryRemoveParams = z.infer<typeof modelPoolEntryRemovePara
 
 export const modelProviderDefaultRouteSchema = z
   .object({
-    protocol: modelProviderProtocolSchema,
+    wireFormat: modelProviderWireFormatSchema,
     providerId: modelProviderIdSchema,
   })
   .strict();
