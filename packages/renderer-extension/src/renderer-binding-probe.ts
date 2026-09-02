@@ -590,6 +590,7 @@ export function installRendererBindingProbe(
   const settingsLifecycle = installRendererSettingsLifecycle(window, {
     getUpdateClient: () => modelControl,
     getConnectionDiagnostics: () => connectionDiagnostics,
+    getModelProviderClient: () => modelControl,
     onLocaleChange() {
       for (const mounted of mountedByComposer.values()) renderMounted(mounted);
     },
@@ -1250,12 +1251,23 @@ export function installRendererBindingProbe(
       let effectiveThinkingOptionId: HarnessThinkingOptionId | undefined;
       let effectiveCatalog: HarnessModelCatalog;
       let resolvedModelLabel: string | undefined;
+      let linkageHint: string | undefined;
       if (current.phase === "draft") {
         effectiveModel = selected;
         effectiveThinkingOptionId = supportsThinkingSelection
           ? draftThinkingOptionForModel(catalog, selected, previousThinking)
           : undefined;
         effectiveCatalog = catalog;
+        if (
+          supportsThinkingSelection &&
+          previousThinking &&
+          previousThinking !== effectiveThinkingOptionId
+        ) {
+          const previousOption = catalog.thinkingOptions.find(({ id }) => id === previousThinking);
+          if (previousOption) {
+            linkageHint = `${previousOption.label} 在此模型不可用，已使用默认`;
+          }
+        }
         if (
           !applyExternalConfiguration(
             mounted,
@@ -1347,6 +1359,7 @@ export function installRendererBindingProbe(
           ? { selectedThinkingOptionId: effectiveThinkingOptionId }
           : {}),
         ...(resolvedModelLabel ? { resolvedModelLabel } : {}),
+        ...(linkageHint ? { linkageHint } : {}),
         thinkingSelectionSupported: supportsThinkingSelection,
       };
     } catch (error) {
@@ -1620,6 +1633,128 @@ export function installRendererBindingProbe(
         catalog: effectiveCatalog,
         selected: model,
         selectedThinkingOptionId: effectiveThinkingOptionId,
+        thinkingSelectionSupported: true,
+      };
+    } catch (error) {
+      if (!isCurrentModelRequest(mounted, generation)) return;
+      applyExternalConfiguration(mounted, agent, model, previousThinking, permissionModeId);
+      mounted.modelView = {
+        status: "error",
+        catalog,
+        selected: model,
+        ...(previousThinking ? { selectedThinkingOptionId: previousThinking } : {}),
+        thinkingSelectionSupported: true,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      if (isCurrentModelRequest(mounted, generation)) renderMounted(mounted);
+    }
+  };
+
+  const selectRendererDefaultThinking = async (
+    mounted: MountedComposer,
+  ): Promise<void> => {
+    controller.clearPendingSubmission(mounted.composer);
+    const current = controller.get(mounted.composer);
+    if (current.agent === "codex") return;
+    const agent = current.agent;
+    const catalog = mounted.modelView.catalog;
+    const model = controller.modelForAgent(mounted.composer, agent);
+    const permissionModeId = controller.permissionModeForAgent(mounted.composer, agent);
+    if (!mounted.modelView.thinkingSelectionSupported || !catalog || !model) return;
+    const defaultOptionId = draftThinkingOptionForModel(catalog, model, undefined);
+    if (!defaultOptionId) return;
+    const previousThinking = controller.thinkingOptionForAgent(mounted.composer, agent);
+    const generation = controller.beginModelRequest(mounted.composer);
+    mounted.modelView = {
+      status: "selecting",
+      catalog,
+      selected: model,
+      ...(previousThinking ? { selectedThinkingOptionId: previousThinking } : {}),
+      thinkingSelectionSupported: true,
+    };
+    renderMounted(mounted);
+    try {
+      let effectiveCatalog = catalog;
+      if (current.phase === "draft") {
+        if (
+          !applyExternalConfiguration(
+            mounted,
+            agent,
+            model,
+            defaultOptionId,
+            permissionModeId,
+          )
+        ) {
+          throw new Error("External Thinking could not be applied to the Composer");
+        }
+        try {
+          await clearDraftPrewarm();
+        } catch (error) {
+          if (isCurrentModelRequest(mounted, generation)) {
+            applyExternalConfiguration(mounted, agent, model, previousThinking, permissionModeId);
+          }
+          throw error;
+        }
+        if (!isCurrentModelRequest(mounted, generation)) return;
+      } else {
+        const threadId = threadIdFromComposerModelTarget(mounted.modelTarget);
+        if (!threadId || !modelControl) {
+          throw new Error("External Thread identity is unavailable for Thinking selection");
+        }
+        const state = await modelControl.selectThreadThinking({
+          threadId,
+          thinkingOptionId: defaultOptionId,
+        });
+        if (
+          !isCurrentModelRequest(mounted, generation) ||
+          controller.get(mounted.composer).agent !== agent
+        ) {
+          return;
+        }
+        if (state.effectiveModel && state.effectiveModel.id !== model.id) {
+          throw new Error("External Harness changed Model during Thinking selection");
+        }
+        if (!state.effectiveThinkingOptionId) {
+          throw new Error("External Harness did not confirm effective Thinking");
+        }
+        effectiveCatalog = catalogWithConfigurationState(catalog, model, state);
+        if (
+          !applyExternalConfiguration(
+            mounted,
+            agent,
+            model,
+            state.effectiveThinkingOptionId,
+            state.effectivePermissionModeId ?? permissionModeId,
+          )
+        ) {
+          throw new Error("Confirmed external Thinking could not be applied to the Composer");
+        }
+        mounted.threadConfiguration = state;
+      }
+      if (!isCurrentModelRequest(mounted, generation)) return;
+      // Following the Harness default means no explicit tier is pinned: clear
+      // the per-agent field and drop thinkingOptionId from the preference so a
+      // later Harness default change is followed automatically.
+      controller.setExternalThinkingOption(mounted.composer, agent, undefined);
+      const effectivePermissionModeId =
+        mounted.threadConfiguration?.effectivePermissionModeId ?? permissionModeId;
+      if (effectivePermissionModeId) {
+        controller.setExternalPermissionMode(mounted.composer, agent, effectivePermissionModeId);
+      }
+      if (shouldPersistNewThreadConfigurationSelection(current.phase)) {
+        writeNewThreadExternalConfigurationPreference(
+          agent,
+          model,
+          undefined,
+          effectivePermissionModeId,
+        );
+      }
+      mounted.modelView = {
+        status: "ready",
+        catalog: effectiveCatalog,
+        selected: model,
+        selectedThinkingOptionId: defaultOptionId,
         thinkingSelectionSupported: true,
       };
     } catch (error) {
@@ -1974,6 +2109,11 @@ export function installRendererBindingProbe(
         const mounted = mountedByComposer.get(composer);
         if (!composer.isConnected || !mounted) return;
         void selectExternalThinking(mounted, thinkingOptionId);
+      },
+      () => {
+        const mounted = mountedByComposer.get(composer);
+        if (!composer.isConnected || !mounted) return;
+        void selectRendererDefaultThinking(mounted);
       },
       (permissionModeId) => {
         const mounted = mountedByComposer.get(composer);

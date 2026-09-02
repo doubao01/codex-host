@@ -17,6 +17,7 @@ const allowedRuntimePackages = new Set([
   "@deepseek-ai/cosmokit",
   "@deepseek-ai/dsh-host-apiproxy",
   "@deepseek-ai/schemastery",
+  "@iarna/toml",
   "@opencode-ai/sdk",
   "diff",
   "ws",

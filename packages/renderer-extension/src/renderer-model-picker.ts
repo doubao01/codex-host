@@ -13,6 +13,13 @@ import {
   RENDERER_MODEL_PICKER_MODEL_MENU_MAX_HEIGHT,
 } from "./renderer-model-picker-positioning.js";
 import {
+  defaultThinkingOptionForModel,
+  matchStrengthTier,
+  strengthTiersForOptions,
+  unmatchedThinkingOptions,
+  type StrengthTierMatch,
+} from "./renderer-thinking-strength.js";
+import {
   ensureRendererTriggerChipStyle,
   TRIGGER_CHIP_CLASS,
 } from "./renderer-trigger-chip-style.js";
@@ -37,6 +44,8 @@ export interface RendererModelControlView {
   selectedThinkingOptionId?: HarnessThinkingOptionId;
   resolvedModelLabel?: string;
   thinkingSelectionSupported?: boolean;
+  /** Transient note shown inside the picker (e.g. a strength tier dropped on Model switch). */
+  linkageHint?: string;
   error?: string;
 }
 
@@ -44,9 +53,13 @@ export interface RendererModelPickerPresentation {
   modelLabel: string;
   thinkingLabel?: string;
   resolvedModelLabel?: string;
-  thinkingOptions: HarnessThinkingOption[];
+  strengthTiers: StrengthTierMatch[];
+  otherOptions: HarnessThinkingOption[];
+  defaultCaption?: string;
+  isUsingDefault: boolean;
   showThinkingSection: boolean;
   thinkingSelectionEnabled: boolean;
+  linkageHint?: string;
 }
 
 interface ModelOptionControl {
@@ -73,6 +86,10 @@ export interface RendererModelPickerControl {
   searchEmpty: HTMLElement;
   options: Map<string, ModelOptionControl>;
   thinkingOptions: Map<string, ThinkingOptionControl>;
+  defaultButton: HTMLButtonElement;
+  defaultCheck: HTMLElement;
+  defaultCaption: HTMLElement;
+  hint: HTMLElement;
   close(): void;
   dispose(): void;
 }
@@ -150,14 +167,23 @@ export function rendererModelPickerPresentation(
   view: RendererModelControlView,
 ): RendererModelPickerPresentation {
   const selectedModel = view.catalog?.models.find((model) => model.ref.id === view.selected?.id);
-  const thinkingOptions =
+  const options =
     view.thinkingSelectionSupported === false
       ? []
       : thinkingOptionsForModel(view.catalog, view.selected);
-  const selectedThinking = thinkingOptions.find(({ id }) => id === view.selectedThinkingOptionId);
+  const strengthTiers = strengthTiersForOptions(options);
+  const otherOptions = unmatchedThinkingOptions(options);
+  const defaultOption =
+    view.catalog && view.selected
+      ? defaultThinkingOptionForModel(view.catalog, view.selected)
+      : undefined;
+  const selected = options.find(({ id }) => id === view.selectedThinkingOptionId);
+  const isUsingDefault =
+    selected === undefined || defaultOption === undefined || selected.id === defaultOption.id;
   const showThinkingSection =
-    thinkingOptions.length > 0 &&
-    !(thinkingOptions.length === 1 && thinkingOptions[0]?.id === "off");
+    options.length > 0 &&
+    (strengthTiers.length > 0 ||
+      !(otherOptions.length === 1 && otherOptions[0]?.id === "off"));
   const resolvedModelLabel = view.resolvedModelLabel ?? selectedModel?.resolvedModelLabel;
   let modelLabel = "Select model";
   if (selectedModel) modelLabel = selectedModel.label;
@@ -166,13 +192,25 @@ export function rendererModelPickerPresentation(
   } else if (view.status === "selecting") modelLabel = "Selecting...";
   else if (view.status === "empty") modelLabel = "No models";
   else if (view.status === "error") modelLabel = "Models unavailable";
+  let thinkingLabel: string | undefined;
+  if (showThinkingSection) {
+    if (isUsingDefault) thinkingLabel = "默认";
+    else if (selected) thinkingLabel = matchStrengthTier(selected)?.label ?? selected.label;
+  }
+  const defaultCaption = defaultOption
+    ? `默认 · ${matchStrengthTier(defaultOption)?.label ?? defaultOption.label}`
+    : undefined;
   return {
     modelLabel,
     ...(resolvedModelLabel && resolvedModelLabel !== modelLabel ? { resolvedModelLabel } : {}),
-    thinkingOptions,
+    ...(showThinkingSection && thinkingLabel ? { thinkingLabel } : {}),
+    strengthTiers,
+    otherOptions,
+    ...(showThinkingSection && defaultCaption ? { defaultCaption } : {}),
+    isUsingDefault,
     showThinkingSection,
-    thinkingSelectionEnabled: thinkingOptions.length > 1,
-    ...(showThinkingSection && selectedThinking ? { thinkingLabel: selectedThinking.label } : {}),
+    thinkingSelectionEnabled: strengthTiers.length + otherOptions.length > 1,
+    ...(view.linkageHint ? { linkageHint: view.linkageHint } : {}),
   };
 }
 
@@ -270,6 +308,7 @@ export function mountRendererModelPicker(
   composerId: string,
   onSelectModel: (modelId: string) => void,
   onSelectThinking: (thinkingOptionId: string) => void,
+  onSelectDefaultThinking: () => void,
 ): RendererModelPickerControl {
   ensureRendererTriggerChipStyle(document);
 
@@ -331,6 +370,20 @@ export function mountRendererModelPicker(
   modelButton.setAttribute("aria-haspopup", "menu");
   modelButton.setAttribute("aria-expanded", "false");
   modelButton.className = OPTION_CLASSES;
+
+  const defaultButton = document.createElement("button");
+  defaultButton.type = "button";
+  defaultButton.dataset.thinkingDefault = "true";
+  defaultButton.setAttribute("role", "menuitemradio");
+  defaultButton.className = OPTION_CLASSES;
+  const defaultCaption = document.createElement("span");
+  defaultCaption.className = "min-w-0 flex-1 truncate";
+  const defaultCheck = createCheck();
+  defaultButton.append(defaultCaption, defaultCheck);
+
+  const hint = document.createElement("div");
+  hint.className = "px-2 py-1 text-xs text-token-text-tertiary";
+  hint.hidden = true;
 
   const modelMenu = document.createElement("div");
   modelMenu.id = `${composerId}-model-submenu`;
@@ -431,10 +484,9 @@ export function mountRendererModelPicker(
   };
   const open = (): void => {
     if (trigger.disabled || pickerOpen()) return;
-    if (control.thinkingOptions.size === 0) {
-      openModelMenu(true);
-      return;
-    }
+    // Always open the main menu so every Harness behaves the same, whether or
+    // not it exposes thinking options. The Model submenu stays reachable via
+    // the Model row below the 推理强度 section.
     menu.showPopover();
     positionAdvancedMenus(control);
   };
@@ -462,6 +514,12 @@ export function mountRendererModelPicker(
       control.searchInput.focus();
       return;
     }
+    if (target?.dataset.thinkingDefault) {
+      close();
+      trigger.focus();
+      onSelectDefaultThinking();
+      return;
+    }
     if (target?.dataset.thinkingOptionId) {
       close();
       trigger.focus();
@@ -474,7 +532,9 @@ export function mountRendererModelPicker(
         ? event.target.closest<HTMLButtonElement>("button[data-model-id]")
         : null;
     if (!target?.dataset.modelId) return;
-    close();
+    // Keep the main menu open so the user can pick a thinking strength right
+    // after choosing a Model; only dismiss the Model submenu.
+    closeModelMenu();
     trigger.focus();
     onSelectModel(target.dataset.modelId);
   };
@@ -530,6 +590,10 @@ export function mountRendererModelPicker(
     searchEmpty,
     options,
     thinkingOptions,
+    defaultButton,
+    defaultCheck,
+    defaultCaption,
+    hint,
     close,
     dispose() {
       close();
@@ -568,22 +632,37 @@ function rebuildOptions(control: RendererModelPickerControl, view: RendererModel
     control.searchEmpty,
   );
 
-  if (presentation.showThinkingSection) {
-    control.menu.append(createHeading("Thinking"));
-    for (const option of presentation.thinkingOptions) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.thinkingOptionId = option.id;
-      button.setAttribute("role", "menuitemradio");
-      button.className = OPTION_CLASSES;
+  const appendThinkingOption = (label: string, option: HarnessThinkingOption): void => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.thinkingOptionId = option.id;
+    button.setAttribute("role", "menuitemradio");
+    button.className = OPTION_CLASSES;
 
-      const text = document.createElement("span");
-      text.textContent = option.label;
-      text.className = "min-w-0 flex-1 truncate";
-      const check = createCheck();
-      button.append(text, check);
-      control.thinkingOptions.set(option.id, { button, check });
-      control.menu.append(button);
+    const text = document.createElement("span");
+    text.textContent = label;
+    text.className = "min-w-0 flex-1 truncate";
+    const check = createCheck();
+    button.append(text, check);
+    control.thinkingOptions.set(option.id, { button, check });
+    control.menu.append(button);
+  };
+
+  if (presentation.showThinkingSection) {
+    control.menu.append(createHeading("\u63a8\u7406\u5f3a\u5ea6"));
+    control.defaultCaption.textContent = presentation.defaultCaption ?? "\u9ed8\u8ba4";
+    control.menu.append(control.defaultButton);
+    for (const { tier, option } of presentation.strengthTiers) {
+      appendThinkingOption(tier.label, option);
+    }
+    if (presentation.otherOptions.length > 0) {
+      const divider = document.createElement("div");
+      divider.setAttribute("role", "separator");
+      divider.className = "my-1 h-px bg-token-border";
+      control.menu.append(divider, createHeading("\u66f4\u591a"));
+      for (const option of presentation.otherOptions) {
+        appendThinkingOption(option.label, option);
+      }
     }
     const divider = document.createElement("div");
     divider.setAttribute("role", "separator");
@@ -600,7 +679,7 @@ function rebuildOptions(control: RendererModelPickerControl, view: RendererModel
   modelChevron.setAttribute("aria-hidden", "true");
   modelChevron.className = "shrink-0 text-token-text-tertiary";
   control.modelButton.replaceChildren(modelText, modelChevron);
-  control.menu.append(control.modelButton);
+  control.menu.append(control.modelButton, control.hint);
 
   for (const model of view.catalog?.models ?? []) {
     const button = document.createElement("button");
@@ -647,7 +726,9 @@ export function renderRendererModelPicker(
   const presentation = rendererModelPickerPresentation(view);
   const catalogSignature = JSON.stringify({
     models: view.catalog?.models,
-    thinkingOptions: presentation.thinkingOptions,
+    strengthTiers: presentation.strengthTiers,
+    otherOptions: presentation.otherOptions,
+    defaultCaption: presentation.defaultCaption,
     showThinkingSection: presentation.showThinkingSection,
     modelLabel: presentation.modelLabel,
   });
@@ -682,6 +763,17 @@ export function renderRendererModelPicker(
   // focused element blurs it, which would drop the cursor out of the box during
   // transient states (e.g. "selecting"). Filtering is client-side and safe.
 
+  const defaultActive = presentation.isUsingDefault;
+  control.defaultButton.setAttribute("aria-checked", String(defaultActive));
+  control.defaultButton.classList.toggle("bg-token-list-hover-background", defaultActive);
+  control.defaultButton.disabled = control.trigger.disabled;
+  control.defaultCheck.style.visibility = defaultActive ? "visible" : "hidden";
+  if (presentation.defaultCaption) {
+    control.defaultCaption.textContent = presentation.defaultCaption;
+  }
+  control.hint.textContent = presentation.linkageHint ?? "";
+  control.hint.hidden = presentation.linkageHint === undefined;
+
   for (const [modelId, option] of control.options) {
     const selected = modelId === view.selected?.id;
     option.button.setAttribute("aria-checked", String(selected));
@@ -690,7 +782,8 @@ export function renderRendererModelPicker(
     option.check.style.visibility = selected ? "visible" : "hidden";
   }
   for (const [thinkingOptionId, option] of control.thinkingOptions) {
-    const selected = thinkingOptionId === view.selectedThinkingOptionId;
+    const selected =
+      view.selectedThinkingOptionId === thinkingOptionId && !presentation.isUsingDefault;
     option.button.setAttribute("aria-checked", String(selected));
     option.button.classList.toggle("bg-token-list-hover-background", selected);
     option.button.disabled = control.trigger.disabled || !presentation.thinkingSelectionEnabled;

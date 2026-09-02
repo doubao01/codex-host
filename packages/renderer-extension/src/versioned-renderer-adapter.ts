@@ -18,6 +18,9 @@ import {
   type ThreadOwnershipListParams,
   type ThreadUsageInspection,
   type ThreadUsageInspectionParams,
+  type ModelPoolEntryAddParams,
+  type ModelPoolEntryRemoveParams,
+  type ModelProviderSaveParams,
 } from "@codexhost/shared-contracts";
 
 import type { RendererAgent } from "./agent-selection-state.js";
@@ -940,6 +943,17 @@ export function installCurrentRendererAdapter(): {
       currentModelClient().selectThreadThinking(input),
     selectThreadPermissionMode: (input: ThreadPermissionModeSelectParams) =>
       currentModelClient().selectThreadPermissionMode(input),
+    listModelProviders: () => currentModelClient().listModelProviders(),
+    saveModelProvider: (input: ModelProviderSaveParams) =>
+      currentModelClient().saveModelProvider(input),
+    removeModelProvider: (id: string) => currentModelClient().removeModelProvider(id),
+    addModelPoolEntry: (input: ModelPoolEntryAddParams) =>
+      currentModelClient().addModelPoolEntry(input),
+    removeModelPoolEntry: (input: ModelPoolEntryRemoveParams) =>
+      currentModelClient().removeModelPoolEntry(input),
+    fetchModelProviderModels: (id: string) => currentModelClient().fetchModelProviderModels(id),
+    testModelProvider: (id: string) => currentModelClient().testModelProvider(id),
+    readModelGatewayStatus: () => currentModelClient().readModelGatewayStatus(),
     checkUpdate: () => currentModelClient().checkUpdate(),
     startUpdate: () => currentModelClient().startUpdate(),
     readUpdateStatus: () => currentModelClient().readUpdateStatus(),

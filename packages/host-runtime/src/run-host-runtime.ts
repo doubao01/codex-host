@@ -3,12 +3,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UPDATE_RUNTIME_ENV } from "@codexhost/update-manager";
+import { isOpenAiCompatibleModelProviderProtocol } from "@codexhost/shared-contracts";
 
 import {
   createExternalHarnessAdapters,
   prefetchClaudeCodeModelCatalog,
 } from "./adapter-composition.js";
-import { AppServerHost, officialEnvironment } from "./app-server-host.js";
+import {
+  AppServerHost,
+  officialEnvironment,
+  type ModelProviderHost,
+} from "./app-server-host.js";
+import {
+  defaultCodexConfigPath,
+  syncCodexGatewayProvider,
+} from "./codex-config-writer.js";
 import { DelegationControlRegistry } from "./delegation-control-registry.js";
 import { startDelegationControlServer } from "./delegation-control-server.js";
 import { installDelegationSkills } from "./delegation-skill.js";
@@ -40,6 +49,12 @@ import {
 } from "./remote-official-app-server.js";
 import { createRemoteOfficialAppServerConnection } from "./remote-official-connection.js";
 import { createHostUpdateCoordinator, type HostUpdateCoordinator } from "./update-coordinator.js";
+import {
+  MODEL_GATEWAY_ENDPOINT_ENV,
+  MODEL_GATEWAY_TOKEN_ENV,
+  startModelGateway,
+} from "./model-gateway-server.js";
+import { createProductionModelProviderRegistry } from "./model-provider-registry.js";
 
 const STOCK_CODEX_PATH_ENV = "CODEXHOST_STOCK_CODEX_PATH";
 const DEFAULT_AGENT_ENV = "CODEXHOST_DEFAULT_AGENT";
@@ -100,17 +115,36 @@ async function prepareDelegationRuntime(input: {
     environment: NodeJS.ProcessEnv,
     onDelegationApi: (api: DelegationControlRegistration) => (() => void) | undefined,
     registry: DelegationControlRegistry,
+    modelProviders: ModelProviderHost,
   ): Promise<number>;
 }): Promise<number> {
   const registry = new DelegationControlRegistry();
   const token = randomBytes(32).toString("hex");
   const server = await startDelegationControlServer({ token, api: registry });
   const cliPath = delegationCliPath(input.environment);
+  const modelProviderRegistry = await createProductionModelProviderRegistry(input.environment);
+  const modelGateway = await startModelGateway({ providers: modelProviderRegistry });
+  // Point the Codex native provider at the fresh (random-port) gateway, and
+  // drop it when no OpenAI-compatible source remains configured.
+  const configPath = defaultCodexConfigPath(input.environment);
+  const hasOpenAiProvider = modelProviderRegistry
+    .snapshot()
+    .providers.some((provider) => isOpenAiCompatibleModelProviderProtocol(provider.protocol));
+  await syncCodexGatewayProvider({
+    configPath,
+    hasOpenAiProvider,
+    endpoint: modelGateway.endpoint,
+    token: modelGateway.token,
+  }).catch((error) => {
+    process.stderr.write(`codexhost Codex config sync failed: ${String(error)}\n`);
+  });
   const environment = {
     ...input.environment,
     ...(cliPath ? { [DELEGATION_CLI_PATH_ENV]: cliPath } : {}),
     [DELEGATION_RUNTIME_ENDPOINT_ENV]: server.endpoint,
     [DELEGATION_RUNTIME_TOKEN_ENV]: token,
+    [MODEL_GATEWAY_ENDPOINT_ENV]: modelGateway.endpoint,
+    [MODEL_GATEWAY_TOKEN_ENV]: modelGateway.token,
   };
   await installDelegationSkills()
     .then((results) => {
@@ -126,9 +160,14 @@ async function prepareDelegationRuntime(input: {
       process.stderr.write(`codexhost delegation Skill installation failed: ${String(error)}\n`);
     });
   try {
-    return await input.createHost(environment, (value) => registry.register(value), registry);
+    return await input.createHost(
+      environment,
+      (value) => registry.register(value),
+      registry,
+      { registry: modelProviderRegistry, gateway: modelGateway },
+    );
   } finally {
-    await server.close();
+    await Promise.allSettled([server.close(), modelGateway.close()]);
   }
 }
 
@@ -159,7 +198,7 @@ export async function runHostRuntime(input: {
     if (!remoteControlPlan) {
       return prepareDelegationRuntime({
         environment,
-        createHost: async (delegationEnvironment, onDelegationApi) => {
+        createHost: async (delegationEnvironment, onDelegationApi, _registry, modelProviders) => {
           const externalAdapters = createExternalHarnessAdapters(delegationEnvironment);
           const host = new AppServerHost({
             stockCodexPath,
@@ -168,6 +207,7 @@ export async function runHostRuntime(input: {
             environment: delegationEnvironment,
             externalAdapters,
             onDelegationApi,
+            modelProviders,
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
           void prefetchClaudeCodeModelCatalog(externalAdapters);
@@ -178,7 +218,7 @@ export async function runHostRuntime(input: {
 
     return prepareDelegationRuntime({
       environment,
-      createHost: async (delegationEnvironment, onDelegationApi, registry) => {
+      createHost: async (delegationEnvironment, onDelegationApi, registry, modelProviders) => {
         const officialPlan = createRemoteControlOfficialAppServerPlan(
           remoteControlPlan.officialArguments,
         );
@@ -208,6 +248,7 @@ export async function runHostRuntime(input: {
           closeMappingStoreOnExit: false,
           createOfficialConnection,
           onDelegationApi,
+          modelProviders,
           ...(updateCoordinator ? { updateCoordinator } : {}),
         });
         const listener = createRemoteAppServerWebSocketListener({
@@ -229,6 +270,7 @@ export async function runHostRuntime(input: {
               closeMappingStoreOnExit: false,
               createOfficialConnection,
               onDelegationApi: (api) => registry.register(api),
+              modelProviders,
               ...(updateCoordinator ? { updateCoordinator } : {}),
             });
           },
@@ -268,7 +310,7 @@ export async function runHostRuntime(input: {
   if (!listenUrl) throw new Error("Remote app-server listener URL is unavailable");
   return prepareDelegationRuntime({
     environment: input.environment,
-    createHost: async (delegationEnvironment, _onDelegationApi, registry) => {
+    createHost: async (delegationEnvironment, _onDelegationApi, registry, modelProviders) => {
       const socketPath = remoteAppServerSocketPath(delegationEnvironment, listenUrl);
       const officialPlan = createRemoteOfficialAppServerPlan(input.arguments, socketPath);
       const officialListener = createRemoteOfficialAppServerListener({
@@ -300,6 +342,7 @@ export async function runHostRuntime(input: {
             createOfficialConnection: () =>
               createRemoteOfficialAppServerConnection(officialPlan.socketPath),
             onDelegationApi: (api) => registry.register(api),
+            modelProviders,
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
         },

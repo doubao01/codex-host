@@ -32,6 +32,8 @@ const { outputFiles } = await build({
 
       const composer = document.createElement("div");
       composer.setAttribute("data-codex-composer-root", "true");
+      const portal = document.createElement("div");
+      portal.setAttribute("data-above-composer-portal", "true");
       const editor = document.createElement("div");
       editor.setAttribute("data-codex-composer", "true");
       editor.setAttribute("contenteditable", "true");
@@ -48,7 +50,15 @@ const { outputFiles } = await build({
             memoCache: {
               data: [
                 [undefined, modelState, modelState],
-                [{}, {}, null, modelState],
+                [
+                  undefined,
+                  undefined,
+                  "client-new-thread:startup-draft-1",
+                  modelState,
+                  undefined,
+                  modelState,
+                  modelState,
+                ],
               ],
             },
           },
@@ -59,7 +69,7 @@ const { outputFiles } = await build({
       const send = document.createElement("button");
       send.type = "submit";
       toolbar.append(send);
-      composer.append(editor, toolbar);
+      composer.append(portal, editor, toolbar);
       document.body.append(composer);
 
       const unavailable = async () => {
@@ -94,6 +104,8 @@ const { outputFiles } = await build({
       setTimeout(() => {
         window.__codexhostDraftPrewarmPolicyV1 = {
           state: "ready",
+          hostId: "local",
+          select: () => true,
           clear: async () => undefined,
         };
       }, 100);
@@ -106,7 +118,7 @@ const { outputFiles } = await build({
   format: "iife",
   platform: "browser",
   target: "es2024",
-  loader: { ".css": "text", ".png": "dataurl" },
+  loader: { ".css": "text", ".png": "dataurl", ".svg": "dataurl" },
   write: false,
 });
 

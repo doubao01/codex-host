@@ -39,6 +39,30 @@ function catalog(levels: readonly string[]) {
   });
 }
 
+function claudeCatalog(
+  options: readonly { id: string; label: string }[],
+  defaultThinkingOptionId?: string,
+) {
+  const thinkingOptions = options.map((option) => ({
+    id: harnessThinkingOptionIdSchema.parse(option.id),
+    label: option.label,
+  }));
+  return harnessModelCatalogSchema.parse({
+    models: [
+      {
+        ref: model,
+        label: "provider / model",
+        supportedThinkingOptionIds: thinkingOptions.map(({ id }) => id),
+      },
+    ],
+    defaultModel: model,
+    thinkingOptions,
+    ...(defaultThinkingOptionId ?? thinkingOptions[0]?.id
+      ? { defaultThinkingOptionId: defaultThinkingOptionId ?? thinkingOptions[0]?.id }
+      : {}),
+  });
+}
+
 describe("Renderer combined Model and Thinking picker presentation", () => {
   it("anchors the main menu's right edge to the model trigger", () => {
     expect(
@@ -107,7 +131,7 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
     expect(writes).toBe(1);
   });
 
-  it("shows only Adapter-reported Thinking options and the confirmed label", () => {
+  it("projects DeepSeek-style (off/low/high) onto 低/高 plus the off row", () => {
     const view = rendererModelPickerPresentation({
       status: "ready",
       catalog: catalog(["off", "low", "high"]),
@@ -117,17 +141,26 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
 
     expect(view).toEqual({
       modelLabel: "provider / model",
-      thinkingLabel: "High",
-      thinkingOptions: [
-        { id: "off", label: "Off" },
-        { id: "low", label: "Low" },
-        { id: "high", label: "High" },
+      thinkingLabel: "高",
+      strengthTiers: [
+        {
+          tier: expect.objectContaining({ key: "low", label: "低" }),
+          option: { id: "low", label: "Low" },
+        },
+        {
+          tier: expect.objectContaining({ key: "high", label: "高" }),
+          option: { id: "high", label: "High" },
+        },
       ],
+      otherOptions: [{ id: "off", label: "Off" }],
+      defaultCaption: "默认 · Off",
+      isUsingDefault: false,
       showThinkingSection: true,
       thinkingSelectionEnabled: true,
     });
-    expect(view.thinkingOptions.map(({ id }) => id)).not.toContain("xhigh");
-    expect(view.thinkingOptions.map(({ id }) => id)).not.toContain("max");
+    expect(view.strengthTiers.map(({ tier }) => tier.key)).toEqual(["low", "high"]);
+    expect(view.strengthTiers.map(({ tier }) => tier.key)).not.toContain("xhigh");
+    expect(view.strengthTiers.map(({ tier }) => tier.key)).not.toContain("max");
   });
 
   it("shows Claude runtime-resolved Model display without exposing Thinking controls", () => {
@@ -158,46 +191,85 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
     ).toEqual({
       modelLabel: "Family alias",
       resolvedModelLabel: "runtime-custom",
-      thinkingOptions: [],
+      strengthTiers: [],
+      otherOptions: [],
+      isUsingDefault: true,
       showThinkingSection: false,
       thinkingSelectionEnabled: false,
     });
   });
 
-  it("shows Claude Thinking options through the shared picker when selection is enabled", () => {
-    const claudeModel = harnessModelRefSchema.parse({ id: "claude-model-v1.c29ubmV0" });
-    const claudeCatalog = harnessModelCatalogSchema.parse({
-      models: [
-        {
-          ref: claudeModel,
-          label: "Family alias",
-          supportedThinkingOptionIds: ["off", "auto", "high"],
-        },
-      ],
-      defaultModel: claudeModel,
-      thinkingOptions: [
-        { id: "off", label: "Off" },
-        { id: "auto", label: "Auto" },
-        { id: "high", label: "High" },
-      ],
-      defaultThinkingOptionId: "auto",
-    });
-
+  it("projects Claude-style (off/auto/high) with the default row selected", () => {
     expect(
       rendererModelPickerPresentation({
         status: "ready",
-        catalog: claudeCatalog,
-        selected: claudeModel,
+        catalog: claudeCatalog(
+          [
+            { id: "off", label: "Off" },
+            { id: "auto", label: "Auto" },
+            { id: "high", label: "High" },
+          ],
+          "auto",
+        ),
+        selected: model,
         selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("auto"),
         thinkingSelectionSupported: true,
       }),
     ).toMatchObject({
-      thinkingLabel: "Auto",
-      thinkingOptions: [
+      thinkingLabel: "默认",
+      strengthTiers: [
+        {
+          tier: expect.objectContaining({ key: "high", label: "高" }),
+          option: { id: "high", label: "High" },
+        },
+      ],
+      otherOptions: [
         { id: "off", label: "Off" },
         { id: "auto", label: "Auto" },
-        { id: "high", label: "High" },
       ],
+      defaultCaption: "默认 · Auto",
+      isUsingDefault: true,
+      showThinkingSection: true,
+      thinkingSelectionEnabled: true,
+    });
+  });
+
+  it("projects a full Claude-style seven-option list onto all five tiers", () => {
+    expect(
+      rendererModelPickerPresentation({
+        status: "ready",
+        catalog: claudeCatalog([
+          { id: "off", label: "Off" },
+          { id: "auto", label: "Auto" },
+          { id: "low", label: "Low" },
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+          { id: "xhigh", label: "Extra High" },
+          { id: "max", label: "Maximum" },
+        ]),
+        selected: model,
+        selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("max"),
+        thinkingSelectionSupported: true,
+      }),
+    ).toEqual({
+      modelLabel: "provider / model",
+      thinkingLabel: "最高",
+      strengthTiers: [
+        { tier: expect.objectContaining({ key: "low" }), option: { id: "low", label: "Low" } },
+        {
+          tier: expect.objectContaining({ key: "medium" }),
+          option: { id: "medium", label: "Medium" },
+        },
+        { tier: expect.objectContaining({ key: "high" }), option: { id: "high", label: "High" } },
+        { tier: expect.objectContaining({ key: "xhigh" }), option: { id: "xhigh", label: "Extra High" } },
+        { tier: expect.objectContaining({ key: "max" }), option: { id: "max", label: "Maximum" } },
+      ],
+      otherOptions: [
+        { id: "off", label: "Off" },
+        { id: "auto", label: "Auto" },
+      ],
+      defaultCaption: "默认 · Off",
+      isUsingDefault: false,
       showThinkingSection: true,
       thinkingSelectionEnabled: true,
     });
@@ -223,7 +295,9 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
       }),
     ).toEqual({
       modelLabel: "provider / model",
-      thinkingOptions: [],
+      strengthTiers: [],
+      otherOptions: [],
+      isUsingDefault: true,
       showThinkingSection: false,
       thinkingSelectionEnabled: false,
     });
@@ -239,13 +313,15 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
       }),
     ).toEqual({
       modelLabel: "provider / model",
-      thinkingOptions: [{ id: "off", label: "Off" }],
+      strengthTiers: [],
+      otherOptions: [{ id: "off", label: "Off" }],
+      isUsingDefault: true,
       showThinkingSection: false,
       thinkingSelectionEnabled: false,
     });
   });
 
-  it("shows one non-off Thinking option as read-only", () => {
+  it("shows one non-off Thinking option as read-only with the default row", () => {
     expect(
       rendererModelPickerPresentation({
         status: "ready",
@@ -254,10 +330,69 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
         selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("minimal"),
       }),
     ).toMatchObject({
-      thinkingLabel: "Minimal",
+      thinkingLabel: "默认",
+      defaultCaption: "默认 · Minimal",
+      isUsingDefault: true,
       showThinkingSection: true,
       thinkingSelectionEnabled: false,
     });
+  });
+
+  it("pushes OpenCode model variants entirely into the more-options group", () => {
+    const openCodeModel = harnessModelRefSchema.parse({ id: "oc-model-v1.synthetic" });
+    const openCodeCatalog = harnessModelCatalogSchema.parse({
+      models: [
+        {
+          ref: openCodeModel,
+          label: "provider / oc-model",
+          supportedThinkingOptionIds: [
+            "ocv.default",
+            "b3BlbmNvZGUvY29kZS1tb2RlbHMvaGFja2VyL2dwdC01LjYtc29s",
+          ],
+        },
+      ],
+      defaultModel: openCodeModel,
+      thinkingOptions: [
+        { id: "ocv.default", label: "ocv.default" },
+        { id: "b3BlbmNvZGUvY29kZS1tb2RlbHMvaGFja2VyL2dwdC01LjYtc29s", label: "gpt-5.6-sol" },
+      ],
+      defaultThinkingOptionId: "ocv.default",
+    });
+
+    expect(
+      rendererModelPickerPresentation({
+        status: "ready",
+        catalog: openCodeCatalog,
+        selected: openCodeModel,
+        selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("ocv.default"),
+        thinkingSelectionSupported: true,
+      }),
+    ).toEqual({
+      modelLabel: "provider / oc-model",
+      thinkingLabel: "默认",
+      strengthTiers: [],
+      otherOptions: [
+        { id: "ocv.default", label: "ocv.default" },
+        { id: "b3BlbmNvZGUvY29kZS1tb2RlbHMvaGFja2VyL2dwdC01LjYtc29s", label: "gpt-5.6-sol" },
+      ],
+      defaultCaption: "默认 · ocv.default",
+      isUsingDefault: true,
+      showThinkingSection: true,
+      thinkingSelectionEnabled: true,
+    });
+  });
+
+  it("surfaces a linkage hint when the previous tier is unavailable", () => {
+    const view = rendererModelPickerPresentation({
+      status: "ready",
+      catalog: catalog(["off", "low", "high"]),
+      selected: model,
+      selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("low"),
+      thinkingSelectionSupported: true,
+      linkageHint: "Low 在此模型不可用，已使用默认",
+    });
+
+    expect(view.linkageHint).toBe("Low 在此模型不可用，已使用默认");
   });
 
   it("disables the combined control for loading and selection, but permits retry", () => {
@@ -289,7 +424,9 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
       expect(isRendererModelPickerDisabled({ status })).toBe(true);
       expect(rendererModelPickerPresentation({ status })).toEqual({
         modelLabel: "Loading models...",
-        thinkingOptions: [],
+        strengthTiers: [],
+        otherOptions: [],
+        isUsingDefault: true,
         showThinkingSection: false,
         thinkingSelectionEnabled: false,
       });
@@ -302,7 +439,9 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
       }),
     ).toEqual({
       modelLabel: "provider / model",
-      thinkingOptions: [],
+      strengthTiers: [],
+      otherOptions: [],
+      isUsingDefault: true,
       showThinkingSection: false,
       thinkingSelectionEnabled: false,
     });

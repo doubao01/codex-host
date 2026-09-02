@@ -5,12 +5,21 @@ import {
   harnessThinkingOptionIdSchema,
   hostThreadIdSchema,
   hostTurnIdSchema,
+  modelProviderIdSchema,
   type ThreadUsageInspection,
 } from "@codexhost/shared-contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   HARNESS_INSPECT_METHOD,
+  MODEL_PROVIDER_FETCH_MODELS_METHOD,
+  MODEL_PROVIDER_GATEWAY_STATUS_METHOD,
+  MODEL_PROVIDER_LIST_METHOD,
+  MODEL_PROVIDER_POOL_ADD_METHOD,
+  MODEL_PROVIDER_POOL_REMOVE_METHOD,
+  MODEL_PROVIDER_REMOVE_METHOD,
+  MODEL_PROVIDER_SAVE_METHOD,
+  MODEL_PROVIDER_TEST_METHOD,
   THREAD_FORK_METHOD,
   THREAD_INSPECT_METHOD,
   THREAD_MODEL_SELECT_METHOD,
@@ -136,20 +145,28 @@ describe("Renderer fixed Model request client", () => {
     const client = createRendererModelClient([{ addNotificationCallback, sendRequest }]);
     if (!client) throw new Error("Synthetic Model client was not created");
     expect(Object.keys(client).sort()).toEqual([
+      "addModelPoolEntry",
       "checkUpdate",
       "executeThreadCommand",
+      "fetchModelProviderModels",
       "forkThread",
       "inspectHarness",
       "inspectThread",
       "inspectThreadCommands",
       "inspectThreadUsage",
+      "listModelProviders",
       "listThreadOwnership",
+      "readModelGatewayStatus",
       "readUpdateStatus",
+      "removeModelPoolEntry",
+      "removeModelProvider",
+      "saveModelProvider",
       "selectThreadModel",
       "selectThreadPermissionMode",
       "selectThreadThinking",
       "startUpdate",
       "subscribeThreadUsage",
+      "testModelProvider",
     ]);
 
     await expect(client.inspectHarness({ harnessId: piHarnessId, refresh: true })).resolves.toEqual(
@@ -384,5 +401,132 @@ describe("Renderer fixed Model request client", () => {
     if (!client) throw new Error("Synthetic Model client was not created");
 
     await expect(client.inspectHarness({ harnessId: piHarnessId })).rejects.toThrow();
+  });
+
+  it("routes Model provider, pool, and gateway methods with validated params", async () => {
+    const providerId = modelProviderIdSchema.parse("my-gateway");
+    const sendRequest = vi
+      .fn<(method: string, params: unknown) => Promise<unknown>>()
+      .mockResolvedValueOnce({
+        providers: [
+          {
+            id: providerId,
+            name: "My Gateway",
+            protocol: "openai",
+            baseUrl: "https://api.example.com/v1",
+            hasApiKey: true,
+          },
+        ],
+        pool: [{ modelId: "gpt-5", providerId, protocol: "openai" }],
+        gatewayEndpoint: "http://127.0.0.1:54321",
+      })
+      .mockResolvedValueOnce({
+        providers: [
+          {
+            id: providerId,
+            name: "My Gateway",
+            protocol: "openai",
+            baseUrl: "https://api.example.com/v1",
+            hasApiKey: true,
+          },
+        ],
+        pool: [],
+        gatewayEndpoint: "http://127.0.0.1:54321",
+      })
+      .mockResolvedValueOnce({
+        providers: [],
+        pool: [],
+        gatewayEndpoint: "http://127.0.0.1:54321",
+      })
+      .mockResolvedValueOnce({
+        providers: [],
+        pool: [{ modelId: "gpt-5", providerId, protocol: "openai" }],
+        gatewayEndpoint: "http://127.0.0.1:54321",
+      })
+      .mockResolvedValueOnce({
+        providers: [],
+        pool: [],
+        gatewayEndpoint: "http://127.0.0.1:54321",
+      })
+      .mockResolvedValueOnce({
+        models: [{ id: "gpt-5", label: "GPT-5" }],
+      })
+      .mockResolvedValueOnce({ ok: true, latencyMs: 120 })
+      .mockResolvedValueOnce({
+        endpoint: "http://127.0.0.1:54321",
+        tokenIssuedAt: 42,
+        defaultRoutes: [{ protocol: "openai", providerId }],
+      });
+    const client = createRendererModelClient([{ sendRequest }]);
+    if (!client) throw new Error("Synthetic Model client was not created");
+
+    const list = await client.listModelProviders();
+    expect(list.gatewayEndpoint).toBe("http://127.0.0.1:54321");
+    expect(list.providers[0]?.id).toBe(providerId);
+    expect(list.providers[0]?.hasApiKey).toBe(true);
+    expect(list.providers[0]?.apiKey).toBeUndefined();
+    expect(sendRequest).toHaveBeenNthCalledWith(1, MODEL_PROVIDER_LIST_METHOD, {});
+
+    await expect(
+      client.saveModelProvider({
+        id: providerId,
+        name: "My Gateway",
+        protocol: "openai",
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "sk-test",
+      }),
+    ).resolves.toMatchObject({ pool: [] });
+    expect(sendRequest).toHaveBeenNthCalledWith(2, MODEL_PROVIDER_SAVE_METHOD, {
+      id: providerId,
+      name: "My Gateway",
+      protocol: "openai",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-test",
+    });
+
+    await expect(client.removeModelProvider(providerId)).resolves.toMatchObject({
+      providers: [],
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(3, MODEL_PROVIDER_REMOVE_METHOD, {
+      id: providerId,
+    });
+
+    await expect(
+      client.addModelPoolEntry({ modelId: "gpt-5", label: "GPT-5", providerId }),
+    ).resolves.toMatchObject({ pool: [{ modelId: "gpt-5" }] });
+    expect(sendRequest).toHaveBeenNthCalledWith(4, MODEL_PROVIDER_POOL_ADD_METHOD, {
+      modelId: "gpt-5",
+      label: "GPT-5",
+      providerId,
+    });
+
+    await expect(
+      client.removeModelPoolEntry({ modelId: "gpt-5", providerId }),
+    ).resolves.toMatchObject({ pool: [] });
+    expect(sendRequest).toHaveBeenNthCalledWith(5, MODEL_PROVIDER_POOL_REMOVE_METHOD, {
+      modelId: "gpt-5",
+      providerId,
+    });
+
+    await expect(client.fetchModelProviderModels(providerId)).resolves.toEqual({
+      models: [{ id: "gpt-5", label: "GPT-5" }],
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(6, MODEL_PROVIDER_FETCH_MODELS_METHOD, {
+      id: providerId,
+    });
+
+    await expect(client.testModelProvider(providerId)).resolves.toEqual({
+      ok: true,
+      latencyMs: 120,
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(7, MODEL_PROVIDER_TEST_METHOD, {
+      id: providerId,
+    });
+
+    await expect(client.readModelGatewayStatus()).resolves.toMatchObject({
+      tokenIssuedAt: 42,
+      defaultRoutes: [{ protocol: "openai", providerId }],
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(8, MODEL_PROVIDER_GATEWAY_STATUS_METHOD, {});
   });
 });

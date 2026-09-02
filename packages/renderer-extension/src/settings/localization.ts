@@ -123,6 +123,44 @@ export interface RendererSettingsMessages {
   readonly aboutRepository: string;
   readonly agentsDescription: string;
   readonly agentsReset: string;
+  readonly modelServicesDescription: string;
+  readonly modelServicesGatewayTitle: string;
+  readonly modelServicesGatewayEndpointLabel: string;
+  readonly modelServicesGatewayDefaultRouteLabel: string;
+  readonly modelServicesGatewayNotConfigured: string;
+  readonly modelServicesNewThreadNote: string;
+  readonly modelServicesProtocolOpenAiDescription: string;
+  readonly modelServicesProtocolAnthropicDescription: string;
+  readonly modelServicesProtocolOllamaDescription: string;
+  readonly modelServicesProtocolLmstudioDescription: string;
+  readonly modelServicesAddProvider: string;
+  readonly modelServicesEditProvider: string;
+  readonly modelServicesProviderId: string;
+  readonly modelServicesProviderName: string;
+  readonly modelServicesProviderBaseUrl: string;
+  readonly modelServicesProviderProtocol: string;
+  readonly modelServicesProviderApiKey: string;
+  readonly modelServicesProviderApiKeyHint: string;
+  readonly modelServicesProviderApiKeySaved: string;
+  readonly modelServicesProviderApiKeyMissing: string;
+  readonly modelServicesSave: string;
+  readonly modelServicesCancel: string;
+  readonly modelServicesFetchModels: string;
+  readonly modelServicesFetchingModels: string;
+  readonly modelServicesTest: string;
+  readonly modelServicesTesting: string;
+  readonly modelServicesRemoveProvider: string;
+  readonly modelServicesTestSuccess: string;
+  readonly modelServicesTestFailed: string;
+  readonly modelServicesModelsFetched: string;
+  readonly modelServicesPoolTitle: string;
+  readonly modelServicesPoolEmpty: string;
+  readonly modelServicesCandidateRemove: string;
+  readonly modelServicesNoModels: string;
+  readonly modelServicesNoProviders: string;
+  readonly modelServicesSaveFailed: string;
+  readonly modelServicesRequestFailed: string;
+  readonly modelServicesFormInvalidId: string;
   readonly pageLabels: Readonly<Record<DefaultRendererSettingsPageId, string>>;
 }
 
@@ -245,9 +283,49 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   agentsDescription:
     "Choose which agents appear in the agent picker. Codex is always available.",
   agentsReset: "Reset to Default",
+  modelServicesDescription:
+    "Configure the sources models come from, grouped by protocol. Every source is reached through the local codexhost gateway, so provider keys never leave this device.",
+  modelServicesGatewayTitle: "Local gateway",
+  modelServicesGatewayEndpointLabel: "Endpoint",
+  modelServicesGatewayDefaultRouteLabel: "Default sources",
+  modelServicesGatewayNotConfigured: "No source configured yet.",
+  modelServicesNewThreadNote: "Changes apply to new Threads. Restart the Host to update the Codex native agent.",
+  modelServicesProtocolOpenAiDescription: "OpenAI-compatible endpoints, including Codex Responses and hosted gateways.",
+  modelServicesProtocolAnthropicDescription: "Anthropic-compatible endpoints.",
+  modelServicesProtocolOllamaDescription: "Local Ollama instances.",
+  modelServicesProtocolLmstudioDescription: "Local LM Studio servers.",
+  modelServicesAddProvider: "Add source",
+  modelServicesEditProvider: "Edit source",
+  modelServicesProviderId: "ID",
+  modelServicesProviderName: "Name",
+  modelServicesProviderBaseUrl: "Base URL",
+  modelServicesProviderProtocol: "Protocol",
+  modelServicesProviderApiKey: "API key",
+  modelServicesProviderApiKeyHint: "Optional. Leave blank to keep the saved key.",
+  modelServicesProviderApiKeySaved: "Key saved",
+  modelServicesProviderApiKeyMissing: "No key",
+  modelServicesSave: "Save",
+  modelServicesCancel: "Cancel",
+  modelServicesFetchModels: "Get models",
+  modelServicesFetchingModels: "Getting models...",
+  modelServicesTest: "Test",
+  modelServicesTesting: "Testing...",
+  modelServicesRemoveProvider: "Remove",
+  modelServicesTestSuccess: "Connected",
+  modelServicesTestFailed: "Failed",
+  modelServicesModelsFetched: "Found",
+  modelServicesPoolTitle: "Model Pool",
+  modelServicesPoolEmpty: "No models in the pool yet. Fetch models from a source and check the ones to route through it.",
+  modelServicesCandidateRemove: "Remove from pool",
+  modelServicesNoModels: "No models returned.",
+  modelServicesNoProviders: "No sources configured for this protocol.",
+  modelServicesSaveFailed: "Name and Base URL are required.",
+  modelServicesRequestFailed: "Request failed.",
+  modelServicesFormInvalidId: "ID must be a lowercase slug like “my-gateway”.",
   pageLabels: Object.freeze({
     connections: "Connections",
     agents: "Agents",
+    "model-services": "Model Services",
     updates: "Updates",
     about: "About",
   }),
@@ -368,9 +446,49 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   aboutRepository: "开源仓库",
   agentsDescription: "选择在代理选择器中显示哪些代理。Codex 始终可用。",
   agentsReset: "恢复默认",
+  modelServicesDescription:
+    "按协议配置模型的来源。所有来源都经由本地 codexhost 网关转发，供应商密钥不会离开本机。",
+  modelServicesGatewayTitle: "本地网关",
+  modelServicesGatewayEndpointLabel: "端点",
+  modelServicesGatewayDefaultRouteLabel: "默认来源",
+  modelServicesGatewayNotConfigured: "尚未配置来源。",
+  modelServicesNewThreadNote: "更改对新 Thread 生效。重启 Host 以更新 Codex 原生代理。",
+  modelServicesProtocolOpenAiDescription: "OpenAI 兼容端点，包括 Codex Responses 与托管网关。",
+  modelServicesProtocolAnthropicDescription: "Anthropic 兼容端点。",
+  modelServicesProtocolOllamaDescription: "本地 Ollama 实例。",
+  modelServicesProtocolLmstudioDescription: "本地 LM Studio 服务。",
+  modelServicesAddProvider: "添加来源",
+  modelServicesEditProvider: "编辑来源",
+  modelServicesProviderId: "ID",
+  modelServicesProviderName: "名称",
+  modelServicesProviderBaseUrl: "Base URL",
+  modelServicesProviderProtocol: "协议",
+  modelServicesProviderApiKey: "API Key",
+  modelServicesProviderApiKeyHint: "可选。留空则保留已保存的密钥。",
+  modelServicesProviderApiKeySaved: "已保存密钥",
+  modelServicesProviderApiKeyMissing: "未设置",
+  modelServicesSave: "保存",
+  modelServicesCancel: "取消",
+  modelServicesFetchModels: "获取模型",
+  modelServicesFetchingModels: "正在获取...",
+  modelServicesTest: "测试",
+  modelServicesTesting: "测试中...",
+  modelServicesRemoveProvider: "删除",
+  modelServicesTestSuccess: "连接成功",
+  modelServicesTestFailed: "连接失败",
+  modelServicesModelsFetched: "发现",
+  modelServicesPoolTitle: "模型池",
+  modelServicesPoolEmpty: "模型池为空。请先从来源获取模型，勾选要路由的模型。",
+  modelServicesCandidateRemove: "移出模型池",
+  modelServicesNoModels: "未返回任何模型。",
+  modelServicesNoProviders: "该协议下尚未配置来源。",
+  modelServicesSaveFailed: "名称与 Base URL 为必填项。",
+  modelServicesRequestFailed: "请求失败。",
+  modelServicesFormInvalidId: "ID 需为小写 slug，例如“my-gateway”。",
   pageLabels: Object.freeze({
     connections: "连接",
     agents: "代理",
+    "model-services": "模型服务",
     updates: "更新",
     about: "关于",
   }),

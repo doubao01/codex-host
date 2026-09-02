@@ -605,6 +605,7 @@ export function mountComposerAgentControl(
   onDownload: (agent: ExternalRendererAgent) => void,
   onSelectModel: (modelId: string) => void,
   onSelectThinking: (thinkingOptionId: string) => void,
+  onSelectDefaultThinking: () => void,
   onSelectPermissionMode: (permissionModeId: string) => void,
   onSelectCommand: (command: HarnessCommandDescriptor) => void,
 ): ComposerAgentControl {
@@ -619,7 +620,12 @@ export function mountComposerAgentControl(
     semanticNativePermissionModeControl !== null &&
     nativePermissionModeControlForComposer(composer) === semanticNativePermissionModeControl;
   const picker = mountRendererAgentPicker(composerId, enabledAgents, onSelect, onDownload);
-  const modelPicker = mountRendererModelPicker(composerId, onSelectModel, onSelectThinking);
+  const modelPicker = mountRendererModelPicker(
+    composerId,
+    onSelectModel,
+    onSelectThinking,
+    onSelectDefaultThinking,
+  );
   const permissionModePicker = mountRendererPermissionModePicker(
     composerId,
     onSelectPermissionMode,

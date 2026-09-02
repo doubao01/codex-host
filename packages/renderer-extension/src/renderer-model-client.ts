@@ -7,6 +7,14 @@ import {
   harnessInspectionSchema,
   harnessModelSelectionStateSchema,
   hostThreadIdSchema,
+  modelGatewayStatusResultSchema,
+  modelPoolEntryAddParamsSchema,
+  modelPoolEntryRemoveParamsSchema,
+  modelProviderFetchModelsResultSchema,
+  modelProviderIdParamsSchema,
+  modelProviderListResultSchema,
+  modelProviderSaveParamsSchema,
+  modelProviderTestResultSchema,
   threadInspectionParamsSchema,
   threadInspectionSchema,
   threadCommandExecuteParamsSchema,
@@ -30,6 +38,13 @@ import {
   type HarnessInspection,
   type HarnessInspectParams,
   type HarnessModelSelectionState,
+  type ModelGatewayStatusResult,
+  type ModelPoolEntryAddParams,
+  type ModelPoolEntryRemoveParams,
+  type ModelProviderFetchModelsResult,
+  type ModelProviderListResult,
+  type ModelProviderSaveParams,
+  type ModelProviderTestResult,
   type ThreadInspection,
   type ThreadInspectionParams,
   type ThreadCommandExecuteParams,
@@ -59,6 +74,14 @@ export const THREAD_OWNERSHIP_LIST_METHOD = "codexhost/thread/ownership/list";
 export const THREAD_USAGE_INSPECT_METHOD = "codexhost/thread/usage/inspect";
 export const THREAD_USAGE_UPDATED_METHOD = "codexhost/thread/usage/updated";
 export const THREAD_TOKEN_USAGE_UPDATED_METHOD = "thread/tokenUsage/updated";
+export const MODEL_PROVIDER_LIST_METHOD = "codexhost/model-provider/list";
+export const MODEL_PROVIDER_SAVE_METHOD = "codexhost/model-provider/save";
+export const MODEL_PROVIDER_REMOVE_METHOD = "codexhost/model-provider/remove";
+export const MODEL_PROVIDER_POOL_ADD_METHOD = "codexhost/model-provider/pool/add";
+export const MODEL_PROVIDER_POOL_REMOVE_METHOD = "codexhost/model-provider/pool/remove";
+export const MODEL_PROVIDER_FETCH_MODELS_METHOD = "codexhost/model-provider/fetch-models";
+export const MODEL_PROVIDER_TEST_METHOD = "codexhost/model-provider/test";
+export const MODEL_PROVIDER_GATEWAY_STATUS_METHOD = "codexhost/model-provider/gateway-status";
 export const UPDATE_CHECK_METHOD = "codexhost/update/check";
 export const UPDATE_START_METHOD = "codexhost/update/start";
 export const UPDATE_STATUS_METHOD = "codexhost/update/status";
@@ -112,6 +135,14 @@ export interface RendererModelClient {
   selectThreadPermissionMode(
     input: ThreadPermissionModeSelectParams,
   ): Promise<HarnessConfigurationState>;
+  listModelProviders(): Promise<ModelProviderListResult>;
+  saveModelProvider(input: ModelProviderSaveParams): Promise<ModelProviderListResult>;
+  removeModelProvider(id: string): Promise<ModelProviderListResult>;
+  addModelPoolEntry(input: ModelPoolEntryAddParams): Promise<ModelProviderListResult>;
+  removeModelPoolEntry(input: ModelPoolEntryRemoveParams): Promise<ModelProviderListResult>;
+  fetchModelProviderModels(id: string): Promise<ModelProviderFetchModelsResult>;
+  testModelProvider(id: string): Promise<ModelProviderTestResult>;
+  readModelGatewayStatus(): Promise<ModelGatewayStatusResult>;
   checkUpdate(): Promise<UpdateCheckResult>;
   startUpdate(): Promise<UpdateStartResult>;
   readUpdateStatus(): Promise<UpdateStatusResult>;
@@ -274,6 +305,44 @@ export function createRendererModelClient(
     selectThreadModel,
     selectThreadThinking,
     selectThreadPermissionMode,
+    async listModelProviders(): Promise<ModelProviderListResult> {
+      const result = await manager.sendRequest(MODEL_PROVIDER_LIST_METHOD, {});
+      return modelProviderListResultSchema.parse(result);
+    },
+    async saveModelProvider(input: ModelProviderSaveParams): Promise<ModelProviderListResult> {
+      const params = modelProviderSaveParamsSchema.parse(input);
+      const result = await manager.sendRequest(MODEL_PROVIDER_SAVE_METHOD, params);
+      return modelProviderListResultSchema.parse(result);
+    },
+    async removeModelProvider(id: string): Promise<ModelProviderListResult> {
+      const params = modelProviderIdParamsSchema.parse({ id });
+      const result = await manager.sendRequest(MODEL_PROVIDER_REMOVE_METHOD, params);
+      return modelProviderListResultSchema.parse(result);
+    },
+    async addModelPoolEntry(input: ModelPoolEntryAddParams): Promise<ModelProviderListResult> {
+      const params = modelPoolEntryAddParamsSchema.parse(input);
+      const result = await manager.sendRequest(MODEL_PROVIDER_POOL_ADD_METHOD, params);
+      return modelProviderListResultSchema.parse(result);
+    },
+    async removeModelPoolEntry(input: ModelPoolEntryRemoveParams): Promise<ModelProviderListResult> {
+      const params = modelPoolEntryRemoveParamsSchema.parse(input);
+      const result = await manager.sendRequest(MODEL_PROVIDER_POOL_REMOVE_METHOD, params);
+      return modelProviderListResultSchema.parse(result);
+    },
+    async fetchModelProviderModels(id: string): Promise<ModelProviderFetchModelsResult> {
+      const params = modelProviderIdParamsSchema.parse({ id });
+      const result = await manager.sendRequest(MODEL_PROVIDER_FETCH_MODELS_METHOD, params);
+      return modelProviderFetchModelsResultSchema.parse(result);
+    },
+    async testModelProvider(id: string): Promise<ModelProviderTestResult> {
+      const params = modelProviderIdParamsSchema.parse({ id });
+      const result = await manager.sendRequest(MODEL_PROVIDER_TEST_METHOD, params);
+      return modelProviderTestResultSchema.parse(result);
+    },
+    async readModelGatewayStatus(): Promise<ModelGatewayStatusResult> {
+      const result = await manager.sendRequest(MODEL_PROVIDER_GATEWAY_STATUS_METHOD, {});
+      return modelGatewayStatusResultSchema.parse(result);
+    },
     async checkUpdate(): Promise<UpdateCheckResult> {
       const result = await manager.sendRequest(
         UPDATE_CHECK_METHOD,

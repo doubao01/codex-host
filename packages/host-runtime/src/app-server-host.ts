@@ -40,6 +40,16 @@ import {
   threadThinkingSelectParamsSchema,
   threadOwnershipListParamsSchema,
   threadOwnershipListResultSchema,
+  MODEL_PROVIDER_ERROR_MAX_LENGTH,
+  isOpenAiCompatibleModelProviderProtocol,
+  modelGatewayStatusResultSchema,
+  modelPoolEntryAddParamsSchema,
+  modelPoolEntryRemoveParamsSchema,
+  modelProviderFetchModelsResultSchema,
+  modelProviderIdParamsSchema,
+  modelProviderListResultSchema,
+  modelProviderSaveParamsSchema,
+  modelProviderTestResultSchema,
   permissionModeFixedAtCreate,
   updateCheckResultSchema,
   updateEmptyParamsSchema,
@@ -107,6 +117,16 @@ import {
   type OfficialAppServerConnection,
 } from "./official-app-server-connection.js";
 import type { HostUpdateCoordinator } from "./update-coordinator.js";
+import {
+  defaultCodexConfigPath,
+  syncCodexGatewayProvider,
+} from "./codex-config-writer.js";
+import {
+  MODEL_GATEWAY_ENDPOINT_ENV,
+  MODEL_GATEWAY_TOKEN_ENV,
+  type ModelGateway,
+} from "./model-gateway-server.js";
+import type { ModelProviderRegistry } from "./model-provider-registry.js";
 
 const SUBAGENT_TERMINAL_REFRESH_DELAYS_MS = [0, 50, 100, 150] as const;
 const THREAD_USAGE_UPDATED_METHOD = "codexhost/thread/usage/updated";
@@ -169,6 +189,12 @@ import {
   type ProjectableHostEvent,
 } from "@codexhost/protocol-core";
 
+/** The shared Model Gateway and its provider registry backing the 模型服务 page. */
+export interface ModelProviderHost {
+  registry: ModelProviderRegistry;
+  gateway: ModelGateway;
+}
+
 export interface AppServerHostOptions {
   stockCodexPath: string;
   arguments: string[];
@@ -188,6 +214,7 @@ export interface AppServerHostOptions {
   onRequestRoute?: (observation: RequestRouteObservation) => void;
   updateCoordinator?: HostUpdateCoordinator;
   onDelegationApi?: (api: DelegationControlRegistration) => (() => void) | undefined;
+  modelProviders?: ModelProviderHost;
 }
 
 interface TurnProjectionGate {
@@ -266,6 +293,9 @@ export function officialEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEn
     "CODEXHOST_NPM_CLI_PATH",
     "CODEXHOST_NPM_LAUNCHER_PATH",
     "CODEXHOST_NPM_PACKAGE_ROOT",
+    MODEL_GATEWAY_ENDPOINT_ENV,
+    MODEL_GATEWAY_TOKEN_ENV,
+    "CODEXHOST_CODEX_CONFIG_PATH",
   ]);
   return Object.fromEntries(
     Object.entries(source).filter(([key]) => !internal.has(key) || allowed.has(key)),
@@ -451,6 +481,7 @@ export class AppServerHost {
   #subagentThreadStatuses = new Map<string, "active" | "idle">();
   #runningSubagentsByParent = new Map<string, Set<string>>();
   #closeRequested = false;
+  #modelProviders: ModelProviderHost | undefined;
 
   constructor(options: AppServerHostOptions) {
     this.#options = {
@@ -459,6 +490,7 @@ export class AppServerHost {
       diagnosticOutput: process.stderr,
       ...options,
     };
+    this.#modelProviders = options.modelProviders;
     this.#writer = new OrderedWriter(this.#options.desktopOutput);
     this.#officialRequestBroker = new OfficialRequestBroker({
       send: async (request) => {
@@ -661,6 +693,38 @@ export class AppServerHost {
       }
       if (request.method === "codexhost/thread/command/execute") {
         await this.#executeThreadCommand(request);
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/list") {
+        this.#dispatchDesktopRequest(() => this.#listModelProviders(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/save") {
+        this.#dispatchDesktopRequest(() => this.#saveModelProvider(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/remove") {
+        this.#dispatchDesktopRequest(() => this.#removeModelProvider(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/pool/add") {
+        this.#dispatchDesktopRequest(() => this.#addModelPoolEntry(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/pool/remove") {
+        this.#dispatchDesktopRequest(() => this.#removeModelPoolEntry(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/fetch-models") {
+        this.#dispatchDesktopRequest(() => this.#fetchModelProviderModels(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/test") {
+        this.#dispatchDesktopRequest(() => this.#testModelProvider(request));
+        continue;
+      }
+      if (request.method === "codexhost/model-provider/gateway-status") {
+        this.#dispatchDesktopRequest(() => this.#modelGatewayStatus(request));
         continue;
       }
       if (request.method === "thread/list") {
@@ -2326,7 +2390,7 @@ export class AppServerHost {
       kind: "create",
       cwd,
       environment: {
-        ...(this.#options.environment ?? process.env),
+        ...this.#externalEnvironment(adapter),
         [DELEGATION_THREAD_ID_ENV]: record.hostThreadId,
       },
       ...(requestedModel ? { model: requestedModel } : {}),
@@ -3683,6 +3747,202 @@ export class AppServerHost {
       return;
     }
     await this.#writer.json(projection);
+  }
+
+  #externalEnvironment(adapter: HarnessAdapter): NodeJS.ProcessEnv {
+    const environment = { ...(this.#options.environment ?? process.env) };
+    if (
+      adapter.harnessId === "claude-code" &&
+      this.#modelProviders &&
+      this.#modelProviders.registry.snapshot().providers.length > 0
+    ) {
+      environment.ANTHROPIC_BASE_URL = this.#modelProviders.gateway.endpoint;
+      environment.ANTHROPIC_AUTH_TOKEN = this.#modelProviders.gateway.token;
+    }
+    return environment;
+  }
+
+  async #syncCodexGatewayConfig(): Promise<void> {
+    if (!this.#modelProviders) return;
+    const configPath = defaultCodexConfigPath(this.#options.environment ?? process.env);
+    const hasOpenAiProvider = this.#modelProviders.registry
+      .snapshot()
+      .providers.some((provider) => isOpenAiCompatibleModelProviderProtocol(provider.protocol));
+    await syncCodexGatewayProvider({
+      configPath,
+      hasOpenAiProvider,
+      endpoint: this.#modelProviders.gateway.endpoint,
+      token: this.#modelProviders.gateway.token,
+    });
+  }
+
+  async #writeModelProviderListResult(request: JsonRpcRequest): Promise<void> {
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    const { providers, pool } = this.#modelProviders.registry.snapshot();
+    await this.#writer.json(
+      rpcEnvelope(request, {
+        result: jsonValueSchema.parse(
+          modelProviderListResultSchema.parse({
+            providers,
+            pool,
+            gatewayEndpoint: this.#modelProviders.gateway.endpoint,
+          }),
+        ),
+      }),
+    );
+  }
+
+  async #listModelProviders(request: JsonRpcRequest): Promise<void> {
+    await this.#writeModelProviderListResult(request);
+  }
+
+  async #saveModelProvider(request: JsonRpcRequest): Promise<void> {
+    const params = modelProviderSaveParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Model provider params"));
+      return;
+    }
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    try {
+      await this.#modelProviders.registry.save(params.data);
+      await this.#syncCodexGatewayConfig();
+    } catch (error) {
+      await this.#writer.json(rpcError(request, -32082, errorMessage(error)));
+      return;
+    }
+    await this.#writeModelProviderListResult(request);
+  }
+
+  async #removeModelProvider(request: JsonRpcRequest): Promise<void> {
+    const params = modelProviderIdParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Model provider id"));
+      return;
+    }
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    try {
+      await this.#modelProviders.registry.remove(params.data.id);
+      await this.#syncCodexGatewayConfig();
+    } catch (error) {
+      await this.#writer.json(rpcError(request, -32082, errorMessage(error)));
+      return;
+    }
+    await this.#writeModelProviderListResult(request);
+  }
+
+  async #addModelPoolEntry(request: JsonRpcRequest): Promise<void> {
+    const params = modelPoolEntryAddParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Model Pool entry"));
+      return;
+    }
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    try {
+      await this.#modelProviders.registry.addPoolEntry(params.data);
+    } catch (error) {
+      await this.#writer.json(rpcError(request, -32082, errorMessage(error)));
+      return;
+    }
+    await this.#writeModelProviderListResult(request);
+  }
+
+  async #removeModelPoolEntry(request: JsonRpcRequest): Promise<void> {
+    const params = modelPoolEntryRemoveParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Model Pool entry"));
+      return;
+    }
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    try {
+      await this.#modelProviders.registry.removePoolEntry(params.data);
+    } catch (error) {
+      await this.#writer.json(rpcError(request, -32082, errorMessage(error)));
+      return;
+    }
+    await this.#writeModelProviderListResult(request);
+  }
+
+  async #fetchModelProviderModels(request: JsonRpcRequest): Promise<void> {
+    const params = modelProviderIdParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Model provider id"));
+      return;
+    }
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    try {
+      const result = await this.#modelProviders.gateway.fetchModels(params.data.id);
+      await this.#writer.json(
+        rpcEnvelope(request, {
+          result: jsonValueSchema.parse(modelProviderFetchModelsResultSchema.parse(result)),
+        }),
+      );
+    } catch (error) {
+      await this.#writer.json(rpcError(request, -32083, errorMessage(error)));
+    }
+  }
+
+  async #testModelProvider(request: JsonRpcRequest): Promise<void> {
+    const params = modelProviderIdParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Model provider id"));
+      return;
+    }
+    if (!this.#modelProviders) {
+      await this.#writer.json(rpcError(request, -32601, "Model providers are not configured"));
+      return;
+    }
+    const result = await this.#modelProviders.gateway.test(params.data.id);
+    const truncated =
+      result.error !== undefined
+        ? { ...result, error: result.error.slice(0, MODEL_PROVIDER_ERROR_MAX_LENGTH) }
+        : result;
+    await this.#writer.json(
+      rpcEnvelope(request, {
+        result: jsonValueSchema.parse(modelProviderTestResultSchema.parse(truncated)),
+      }),
+    );
+  }
+
+  async #modelGatewayStatus(request: JsonRpcRequest): Promise<void> {
+    if (!this.#modelProviders) {
+      await this.#writer.json(
+        rpcEnvelope(request, {
+          result: jsonValueSchema.parse(
+            modelGatewayStatusResultSchema.parse({ endpoint: null, defaultRoutes: [] }),
+          ),
+        }),
+      );
+      return;
+    }
+    await this.#writer.json(
+      rpcEnvelope(request, {
+        result: jsonValueSchema.parse(
+          modelGatewayStatusResultSchema.parse({
+            endpoint: this.#modelProviders.gateway.endpoint,
+            tokenIssuedAt: this.#modelProviders.gateway.tokenIssuedAt,
+            defaultRoutes: this.#modelProviders.registry.listDefaultRoutes(),
+          }),
+        ),
+      }),
+    );
   }
 
   #dispatchDesktopRequest(run: () => Promise<void>): void {
