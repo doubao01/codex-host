@@ -176,3 +176,4 @@ export const packageMetadata = {
   name: "@codexhost/shared-contracts",
   contractVersion: WORKSPACE_CONTRACT_VERSION,
 } as const;
+export * from "./harness-registry.js";
