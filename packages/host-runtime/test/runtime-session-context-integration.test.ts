@@ -3,6 +3,7 @@ import {
   harnessIdSchema,
   hostThreadIdSchema,
   nativeSessionRefSchema,
+  type StoredThreadRecordV1,
 } from "@codexhost/shared-contracts";
 import { describe, expect, it } from "vitest";
 
@@ -46,7 +47,7 @@ describe("ExternalThreadRuntime session context integration", () => {
         turnMappings: [],
         createdAt: "2026-09-03T00:00:00.000Z",
         updatedAt: "2026-09-03T00:00:00.000Z",
-      } as any,
+      } as unknown as StoredThreadRecordV1,
       session: opened.value,
       sessionId: "session-1",
       thread: { id: hostThreadId },
