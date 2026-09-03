@@ -121,7 +121,9 @@ export interface RendererSettingsMessages {
   readonly aboutOpenSource: string;
   readonly aboutStarCallout: string;
   readonly aboutRepository: string;
-  readonly pageLabels: Readonly<Record<DefaultRendererSettingsPageId, string>>;
+  readonly pageLabels: Readonly<Record<string, string>>;
+  /** Feature pages may add localized strings without changing the core settings contract. */
+  readonly [messageKey: string]: any;
 }
 
 const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
