@@ -99,9 +99,10 @@ export function createModelServicesSettingsPage(
   messages: RendererSettingsMessages,
   getClient: () => RendererModelProviderClient | null,
 ): RendererSettingsPageDefinition {
+  const pageLabel = messages.pageLabels["model-services"] ?? "Model Services";
   return Object.freeze({
     id: "model-services",
-    label: messages.pageLabels["model-services"]!,
+    label: pageLabel,
     icon: "model-pool",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
@@ -109,7 +110,7 @@ export function createModelServicesSettingsPage(
 
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels["model-services"]!;
+      heading.textContent = pageLabel;
       const description = document.createElement("p");
       description.className = "settings-page-description";
       description.textContent = messages.modelServicesDescription;
