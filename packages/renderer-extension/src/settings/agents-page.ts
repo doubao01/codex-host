@@ -19,6 +19,7 @@ const AGENT_DESCRIPTIONS: Readonly<Record<ExternalRendererAgent, string>> = Obje
   opencode: "OpenCode · OpenCode SDK",
   grok: "Grok · Agent Client Protocol",
   omp: "Oh My Pi · JSON-RPC",
+  antigravity: "Antigravity · Antigravity CLI",
 });
 
 function createAgentRow(
