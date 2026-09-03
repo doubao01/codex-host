@@ -127,6 +127,8 @@ function forwardHeaders(
   delete headers.host;
   delete headers.connection;
   delete headers["keep-alive"];
+  // Never forward the gateway credential to an upstream provider. Authentication
+  // is rewritten below using the provider-owned secret.\n  delete headers["authorization"];\n  delete headers["x-api-key"];
   Object.assign(headers, customHeaders(provider));
   if (isAnthropicWireFormat(provider.wireFormat)) {
     delete headers.authorization;
