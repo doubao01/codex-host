@@ -43,6 +43,8 @@ import { createRemoteOfficialAppServerConnection } from "./remote-official-conne
 import { createHostUpdateCoordinator, type HostUpdateCoordinator } from "./update-coordinator.js";
 import { startModelGateway } from "./model-gateway-server.js";
 import { createProductionModelProviderRegistry } from "./model-provider-registry.js";
+import { createRuntimeProviderContext } from "./runtime-provider-context.js";
+import type { RuntimeProviderContext } from "@codexhost/shared-contracts";
 
 const STOCK_CODEX_PATH_ENV = "CODEXHOST_STOCK_CODEX_PATH";
 const DEFAULT_AGENT_ENV = "CODEXHOST_DEFAULT_AGENT";
@@ -58,8 +60,11 @@ async function createModelProviderHost(environment: NodeJS.ProcessEnv): Promise<
 
 function runtimeProviderInjection(
   modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>,
-) {
-  return { endpoint: modelProviders.gateway.endpoint, token: modelProviders.gateway.token };
+): RuntimeProviderContext {
+  return createRuntimeProviderContext({
+    endpoint: modelProviders.gateway.endpoint,
+    token: modelProviders.gateway.token,
+  });
 }
 
 export function officialRuntimeArguments(
