@@ -217,6 +217,7 @@ export async function runHostRuntime(input: {
         const mappingStore = createProductionExternalThreadStore(delegationEnvironment);
         await mappingStore.initialize();
         const externalAdapters = createExternalHarnessAdapters(delegationEnvironment);
+        const modelProviders = await createModelProviderHost(delegationEnvironment);
         const host = new AppServerHost({
           stockCodexPath,
           arguments: input.arguments,
@@ -227,6 +228,7 @@ export async function runHostRuntime(input: {
           closeMappingStoreOnExit: false,
           createOfficialConnection,
           onDelegationApi,
+          modelProviders,
           ...(updateCoordinator ? { updateCoordinator } : {}),
         });
         const listener = createRemoteAppServerWebSocketListener({
@@ -249,6 +251,7 @@ export async function runHostRuntime(input: {
               closeMappingStoreOnExit: false,
               createOfficialConnection,
               onDelegationApi: (api) => registry.register(api),
+              modelProviders,
               ...(updateCoordinator ? { updateCoordinator } : {}),
             });
           },
@@ -275,6 +278,7 @@ export async function runHostRuntime(input: {
               await officialListener.close();
             } finally {
               await mappingStore.close();
+              await modelProviders.gateway.close();
             }
           }
         }
@@ -301,6 +305,7 @@ export async function runHostRuntime(input: {
       });
       const mappingStore = createProductionExternalThreadStore(delegationEnvironment);
       await mappingStore.initialize();
+      const modelProviders = await createModelProviderHost(delegationEnvironment);
       const listener = createRemoteAppServerWebSocketListener({
         socketPath,
         diagnosticOutput: process.stderr,
@@ -324,6 +329,7 @@ export async function runHostRuntime(input: {
             createOfficialConnection: () =>
               createRemoteOfficialAppServerConnection(officialPlan.socketPath),
             onDelegationApi: (api) => registry.register(api),
+            modelProviders,
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
         },
