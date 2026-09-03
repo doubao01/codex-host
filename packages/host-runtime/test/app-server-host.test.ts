@@ -333,12 +333,11 @@ async function stopFixture(fixture: ReturnType<typeof createFixture>): Promise<v
 
 describe("AppServerHost HarnessAdapter projection", () => {
 
-  it("injects a Gateway endpoint and token into the official child environment only", () => {
+  it("injects the Gateway token into the official child environment only", () => {
     expect(officialRuntimeEnvironment({ VISIBLE: "yes" }, {
       endpoint: "http://127.0.0.1:43123/v1", token: "ephemeral-token",
     })).toMatchObject({
       VISIBLE: "yes",
-      OPENAI_BASE_URL: "http://127.0.0.1:43123/v1",
       OPENAI_API_KEY: "ephemeral-token",
     });
   });
