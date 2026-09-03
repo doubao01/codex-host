@@ -20,6 +20,29 @@ export const OPENCODE_COMMAND_ENV = "CODEXHOST_OPENCODE_COMMAND";
 export const ANTIGRAVITY_COMMAND_ENV = "CODEXHOST_ANTIGRAVITY_COMMAND";
 
 type InspectableHarnessAdapter = Pick<HarnessAdapter, "inspect">;
+
+export type HarnessCapability = HarnessManifest["capabilities"][number];
+
+export interface HarnessCapabilityProjection {
+  id: ExternalHarnessId;
+  displayName: string;
+  capabilities: readonly HarnessCapability[];
+  supports(capability: HarnessCapability): boolean;
+}
+
+export function projectHarnessCapabilities(
+  registry: HarnessRegistry,
+  harnessId: ExternalHarnessId,
+): HarnessCapabilityProjection | null {
+  const manifest = registry.get(harnessId);
+  if (!manifest) return null;
+  return {
+    id: manifest.id as ExternalHarnessId,
+    displayName: manifest.displayName,
+    capabilities: manifest.capabilities,
+    supports: (capability) => manifest.capabilities.includes(capability),
+  };
+}
 export function createExternalHarnessRegistry(): HarnessRegistry {
   const registry = new HarnessRegistry();
   const manifests: HarnessManifest[] = [
