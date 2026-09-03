@@ -168,6 +168,7 @@ export type {
   UpdateStatus,
   UpdateStatusResult,
 } from "./updates.js";
+export * from "./model-providers.js";
 export { WORKSPACE_CONTRACT_VERSION } from "./version.js";
 
 export const workspaceContractVersionSchema = z.literal(WORKSPACE_CONTRACT_VERSION);
@@ -176,6 +177,7 @@ export const packageMetadata = {
   name: "@codexhost/shared-contracts",
   contractVersion: WORKSPACE_CONTRACT_VERSION,
 } as const;
+
 export * from "./harness-registry.js";
 export * from "./runtime-provider.js";
 export * from "./runtime-session-context.js";
