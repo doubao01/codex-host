@@ -19,7 +19,6 @@ import type { RendererSettingsPageDefinition, RendererSettingsPageMountContext }
 import { createRendererSettingsIcon } from "./icons.js";
 import type { RendererSettingsMessages } from "./localization.js";
 
-/** RPC-backed client used by the Model Services settings page. */
 export interface RendererModelProviderClient {
   listModelProviders(): Promise<ModelProviderListResult>;
   saveModelProvider(input: ModelProviderSaveParams): Promise<ModelProviderListResult>;
@@ -32,8 +31,6 @@ export interface RendererModelProviderClient {
 }
 
 const MODEL_PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/u;
-
-/** Sentinel used while the inline form is adding a brand-new source. */
 const ADD_PROVIDER_KEY = "__new__";
 
 function wireFormatLabel(
@@ -61,7 +58,6 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/gu, "");
 }
 
-/** Derives a lowercase-slug ID from the source remark; no ID field is exposed. */
 function generateProviderId(name: string, existing: Iterable<string>): ModelProviderId {
   const taken = new Set(existing);
   const base = slugify(name) || "provider";
@@ -88,9 +84,7 @@ function createButton(
 
 type HeaderRow = { name: string; value: string; storedValue: boolean };
 
-/** Live state behind the single expanded inline form. Rebuilt on render. */
 interface ExpandedFormState {
-  /** Null while adding a brand-new source; set once the source is persisted. */
   providerId: ModelProviderId | null;
   wireFormat: ModelProviderWireFormat;
   baseUrl: string;
@@ -107,7 +101,7 @@ export function createModelServicesSettingsPage(
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "model-services",
-    label: messages.pageLabels["model-services"],
+    label: messages.pageLabels["model-services"]!,
     icon: "model-pool",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
@@ -115,7 +109,7 @@ export function createModelServicesSettingsPage(
 
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels["model-services"];
+      heading.textContent = messages.pageLabels["model-services"]!;
       const description = document.createElement("p");
       description.className = "settings-page-description";
       description.textContent = messages.modelServicesDescription;
@@ -139,11 +133,9 @@ export function createModelServicesSettingsPage(
 
       const sourceList = document.createElement("section");
       sourceList.className = "settings-model-source-list";
-
       const errorNote = document.createElement("p");
       errorNote.className = "settings-model-services-error";
       errorNote.setAttribute("aria-live", "polite");
-
       context.content.append(gatewayPanel, errorNote, sourceList);
 
       let latest: ModelProviderListResult | null = null;
@@ -189,10 +181,10 @@ export function createModelServicesSettingsPage(
           if (name.length === 0) continue;
           const value = row.value.trim();
           if (value.length > 0) headers.push({ name, value });
-          else if (row.storedValue) headers.push({ name }); // keep the stored value
+          else if (row.storedValue) headers.push({ name });
         }
         for (const name of form.clearedHeaders) {
-          if (name.length > 0) headers.push({ name, value: "" }); // clear the stored value
+          if (name.length > 0) headers.push({ name, value: "" });
         }
         return headers;
       };
@@ -282,7 +274,6 @@ export function createModelServicesSettingsPage(
         }
         routes.append(routesList);
         gatewayBody.append(routes);
-
         const note = document.createElement("p");
         note.className = "settings-model-gateway-note";
         note.textContent = messages.modelServicesNewThreadNote;
@@ -355,7 +346,6 @@ export function createModelServicesSettingsPage(
         );
         fetchButton.disabled = busy;
         fetchButton.addEventListener("click", () => {
-          // Expand the card so the fetched candidates show in the model section.
           openForm(provider);
           fetchModelsFor(provider.id);
         });
@@ -518,7 +508,6 @@ export function createModelServicesSettingsPage(
         formElement.className = "settings-model-provider-form";
         formElement.noValidate = true;
 
-        // 1. Wire format (linked to the exact request path).
         const wireFormatField = document.createElement("label");
         wireFormatField.className = "settings-model-field";
         const wireFormatLabelEl = document.createElement("span");
@@ -533,7 +522,6 @@ export function createModelServicesSettingsPage(
         wireFormatInput.value = form.wireFormat;
         wireFormatField.append(wireFormatLabelEl, wireFormatInput);
 
-        // 2. Base URL with a live full-URL preview.
         const baseUrlField = document.createElement("label");
         baseUrlField.className = "settings-model-field";
         const baseUrlLabelEl = document.createElement("span");
@@ -546,7 +534,6 @@ export function createModelServicesSettingsPage(
         fullUrlPreview.className = "settings-model-full-url";
         baseUrlField.append(baseUrlLabelEl, baseUrlInput, fullUrlPreview);
 
-        // 3. API token with a reveal/hide toggle.
         const apiKeyField = document.createElement("label");
         apiKeyField.className = "settings-model-field";
         const apiKeyLabelEl = document.createElement("span");
@@ -574,8 +561,6 @@ export function createModelServicesSettingsPage(
           apiKeyField.append(storedHint);
         }
 
-        // 4. Model name / model list: fetch candidates, check into the pool,
-        //    manual add row, context-window per model.
         const modelsBlock = document.createElement("div");
         modelsBlock.className = "settings-model-models";
         const modelsHead = document.createElement("div");
@@ -595,12 +580,7 @@ export function createModelServicesSettingsPage(
             fetchModelsFor(form.providerId);
             return;
           }
-          // Add mode: persist the source first so the fetch has an ID to use.
-          submitForm({
-            formStatus,
-            keepOpen: true,
-            onSaved: (id) => fetchModelsFor(id),
-          });
+          submitForm({ formStatus, keepOpen: true, onSaved: (id) => fetchModelsFor(id) });
         });
         modelsHead.append(modelsTitle, fetchButton);
         const candidates = document.createElement("div");
@@ -639,9 +619,7 @@ export function createModelServicesSettingsPage(
                 modelId,
                 ...(label.length > 0 ? { label } : {}),
                 providerId,
-                ...(contextWindow !== undefined &&
-                Number.isInteger(contextWindow) &&
-                contextWindow > 0
+                ...(contextWindow !== undefined && Number.isInteger(contextWindow) && contextWindow > 0
                   ? { contextWindow }
                   : {}),
               }),
@@ -659,7 +637,6 @@ export function createModelServicesSettingsPage(
         );
         modelsBlock.append(modelsHead, candidates, poolList, addModelRow);
 
-        // 5. Remark (the source display name; also the slug source).
         const nameField = document.createElement("label");
         nameField.className = "settings-model-field";
         const nameLabelEl = document.createElement("span");
@@ -669,7 +646,6 @@ export function createModelServicesSettingsPage(
         nameInput.value = form.name;
         nameField.append(nameLabelEl, nameInput);
 
-        // 6. Advanced: exact-path override + dynamic request headers.
         const advanced = document.createElement("details");
         advanced.className = "settings-model-advanced";
         const advancedSummary = document.createElement("summary");
@@ -704,7 +680,6 @@ export function createModelServicesSettingsPage(
         headersBlock.append(headersHead, headerRows);
         advanced.append(advancedSummary, pathField, headersBlock);
 
-        // 7. Actions + inline status.
         const actions = document.createElement("div");
         actions.className = "settings-model-provider-form__actions";
         const saveButton = createButton(
@@ -723,7 +698,6 @@ export function createModelServicesSettingsPage(
         formStatus.className = "settings-model-provider-form-status";
         formStatus.dataset.modelProviderFormStatus = "value";
         actions.append(saveButton, cancelButton, formStatus);
-
         formElement.append(
           wireFormatField,
           baseUrlField,
@@ -741,7 +715,6 @@ export function createModelServicesSettingsPage(
               : "";
         };
         refreshFullUrl();
-
         wireFormatInput.addEventListener("change", () => {
           form.wireFormat = wireFormatInput.value as ModelProviderWireFormat;
           form.path = defaultModelProviderPath(form.wireFormat);
@@ -829,7 +802,6 @@ export function createModelServicesSettingsPage(
           const pool = latest?.pool ?? [];
           const fetched = providerId !== null ? (fetchedModels.get(providerId) ?? []) : [];
           const hasFetched = providerId !== null && fetchedModels.has(providerId);
-
           candidates.replaceChildren();
           for (const model of fetched) {
             const inPool =
@@ -961,9 +933,6 @@ export function createModelServicesSettingsPage(
         return formElement;
       };
 
-      // The gateway endpoint is carried by the list result while the default
-      // routes come from gateway-status. runLatest only keeps the newest
-      // request, so load both in a single operation before the first render.
       runRequest(
         () => Promise.all([client.readModelGatewayStatus(), client.listModelProviders()]),
         ([status, result]) => {
