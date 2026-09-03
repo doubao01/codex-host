@@ -106,6 +106,8 @@ export type {
 } from "./update-coordinator.js";
 export { createRuntimeProviderContext } from "./runtime-provider-context.js";
 export type { RuntimeGatewayCredentials } from "./runtime-provider-context.js";
+export { createRuntimeSessionContext } from "./runtime-session-context.js";
+export type { RuntimeSessionContext } from "@codexhost/shared-contracts";
 export { classifyThreadPurpose, RequestRouteObservationTracker } from "./route-observation.js";
 export type {
   CreateRequestRouteObservation,
