@@ -177,3 +177,4 @@ export const packageMetadata = {
   contractVersion: WORKSPACE_CONTRACT_VERSION,
 } as const;
 export * from "./harness-registry.js";
+export * from "./runtime-provider.js";
