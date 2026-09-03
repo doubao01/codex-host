@@ -7,6 +7,7 @@ import { isOpenAiWireFormat } from "@codexhost/shared-contracts";
 
 import {
   createExternalHarnessAdapters,
+  prefetchAntigravityModelCatalog,
   prefetchClaudeCodeModelCatalog,
 } from "./adapter-composition.js";
 import { AppServerHost, officialEnvironment, type ModelProviderHost } from "./app-server-host.js";
@@ -202,6 +203,7 @@ export async function runHostRuntime(input: {
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
           void prefetchClaudeCodeModelCatalog(externalAdapters);
+          void prefetchAntigravityModelCatalog(externalAdapters);
           return host.run();
         },
       });
@@ -248,6 +250,7 @@ export async function runHostRuntime(input: {
           createSession: ({ input: desktopInput, output: desktopOutput, diagnosticOutput }) => {
             const sessionAdapters = createExternalHarnessAdapters(delegationEnvironment);
             void prefetchClaudeCodeModelCatalog(sessionAdapters);
+            void prefetchAntigravityModelCatalog(sessionAdapters);
             return new AppServerHost({
               stockCodexPath,
               arguments: [],
@@ -267,6 +270,7 @@ export async function runHostRuntime(input: {
           },
         });
         void prefetchClaudeCodeModelCatalog(externalAdapters);
+        void prefetchAntigravityModelCatalog(externalAdapters);
         let hostStarted = false;
         try {
           officialEndpoint = await officialListener.listen();
@@ -321,6 +325,7 @@ export async function runHostRuntime(input: {
             managedRemoteHost: true,
           });
           void prefetchClaudeCodeModelCatalog(externalAdapters);
+          void prefetchAntigravityModelCatalog(externalAdapters);
           return new AppServerHost({
             stockCodexPath,
             arguments: [],
