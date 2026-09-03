@@ -60,6 +60,14 @@ function runtimeProviderInjection(modelProviders: Awaited<ReturnType<typeof crea
   return { endpoint: modelProviders.gateway.endpoint, token: modelProviders.gateway.token };
 }
 
+function officialRuntimeArguments(arguments_: readonly string[], modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>): string[] {
+  return [
+    "--config",
+    `openai_base_url=${JSON.stringify(modelProviders.gateway.endpoint)}`,
+    ...arguments_,
+  ];
+}
+
 export function createRemoteOfficialAppServerPlan(
   arguments_: readonly string[],
   desktopControlSocketPath: string,
@@ -209,10 +217,9 @@ export async function runHostRuntime(input: {
         const modelProviders = await createModelProviderHost(delegationEnvironment);
         const officialListener = createLoopbackOfficialAppServerListener({
           stockCodexPath,
-          arguments: officialPlan.listenerArguments,
+          arguments: officialRuntimeArguments(officialPlan.listenerArguments, modelProviders),
           environment: {
             ...officialEnvironment(delegationEnvironment),
-            OPENAI_BASE_URL: modelProviders.gateway.endpoint,
             OPENAI_API_KEY: modelProviders.gateway.token,
           },
           diagnosticOutput: process.stderr,
@@ -310,11 +317,10 @@ export async function runHostRuntime(input: {
       const modelProviders = await createModelProviderHost(delegationEnvironment);
       const officialListener = createRemoteOfficialAppServerListener({
         stockCodexPath,
-        arguments: officialPlan.listenerArguments,
+        arguments: officialRuntimeArguments(officialPlan.listenerArguments, modelProviders),
         socketPath: officialPlan.socketPath,
         environment: {
           ...officialEnvironment(delegationEnvironment),
-          OPENAI_BASE_URL: modelProviders.gateway.endpoint,
           OPENAI_API_KEY: modelProviders.gateway.token,
         },
         diagnosticOutput: process.stderr,
