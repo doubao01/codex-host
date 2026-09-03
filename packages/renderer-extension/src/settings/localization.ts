@@ -1,5 +1,3 @@
-import type { DefaultRendererSettingsPageId } from "./pages.js";
-
 export const RENDERER_SETTINGS_LOCALES = ["en", "zh-CN"] as const;
 export type RendererSettingsLocale = (typeof RENDERER_SETTINGS_LOCALES)[number];
 
