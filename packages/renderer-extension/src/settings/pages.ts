@@ -64,6 +64,7 @@ function windowsInstallerDownloadUrl(window: Window | null | undefined, version:
 }
 
 export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = ["connections", "updates", "about"] as const;
+
 export type DefaultRendererSettingsPageId = (typeof DEFAULT_RENDERER_SETTINGS_PAGE_IDS)[number];
 
 export interface RendererUpdateClient {
@@ -101,7 +102,9 @@ function installationLabel(
   messages: RendererSettingsMessages,
 ): string {
   if (installation === "npm") return messages.updateInstallationNpm;
-  if (installation === "windows-installer") return messages.updateInstallationWindowsInstaller;
+  if (installation === "windows-installer") {
+    return messages.updateInstallationWindowsInstaller;
+  }
   if (installation === "macos-dmg") return messages.updateInstallationMacOsDmg;
   return messages.updateInstallationUnknown;
 }
@@ -110,7 +113,10 @@ function isPendingStatus(status: UpdateStatus | null): boolean {
   return status !== null && status.phase !== "succeeded" && status.phase !== "failed";
 }
 
-function statusMessage(status: UpdateStatus | null, messages: RendererSettingsMessages): string | null {
+function statusMessage(
+  status: UpdateStatus | null,
+  messages: RendererSettingsMessages,
+): string | null {
   if (!status) return null;
   if (status.phase === "succeeded") return messages.updateSucceeded;
   if (status.phase === "failed") return status.error ?? messages.updateFailed;
@@ -137,16 +143,16 @@ function formatUpdateBytes(value: number): string {
 }
 
 function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefinition {
-  const label = messages.pageLabels.about ?? "About";
   return Object.freeze({
     id: "about",
-    label,
+    label: messages.pageLabels.about,
     icon: "about",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = label;
+      heading.textContent = messages.pageLabels.about;
+
       const panel = document.createElement("section");
       panel.className = "settings-about-panel";
       const product = document.createElement("strong");
@@ -176,7 +182,11 @@ function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefi
       repository.rel = "noopener noreferrer";
       const repositoryUrl = document.createElement("code");
       repositoryUrl.textContent = CODEXHOST_GITHUB_REPOSITORY_URL;
-      repository.append(createRendererSettingsIcon("external-link", 14), messages.aboutRepository, repositoryUrl);
+      repository.append(
+        createRendererSettingsIcon("external-link", 14),
+        messages.aboutRepository,
+        repositoryUrl,
+      );
       repositorySection.append(openSource, repository);
       panel.append(product, tagline, introduction, starCallout, repositorySection);
       context.content.append(heading, panel);
@@ -189,25 +199,26 @@ function updatesPage(
   messages: RendererSettingsMessages,
   getClient: () => RendererUpdateClient | null,
 ): RendererSettingsPageDefinition {
-  const label = messages.pageLabels.updates ?? "Updates";
   return Object.freeze({
     id: "updates",
-    label,
+    label: messages.pageLabels.updates,
     icon: "updates",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
       const windows = isWindowsRenderer(document.defaultView);
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = label;
+      heading.textContent = messages.pageLabels.updates;
 
+      // Version summary: current, latest, and installation sit side by side so the
+      // comparison is readable without scrolling.
       const metadata = document.createElement("div");
       metadata.className = "settings-update-metadata";
-      const createMetadataItem = (labelText: string): HTMLElement => {
+      const createMetadataItem = (label: string): HTMLElement => {
         const item = document.createElement("div");
         item.className = "settings-update-metadata__item";
         const name = document.createElement("span");
-        name.textContent = labelText;
+        name.textContent = label;
         const value = document.createElement("strong");
         value.textContent = "-";
         item.append(name, value);
@@ -222,6 +233,9 @@ function updatesPage(
       panel.className = "settings-update-panel";
       panel.setAttribute("aria-live", "polite");
 
+      // Manual update stays visible directly under the status panel: automatic
+      // updates can fail for reasons local to the machine, and the fallback path
+      // should never be more than a glance away.
       const controls = document.createElement("div");
       controls.className = "settings-update-controls";
       const manualTitle = document.createElement("div");
@@ -240,14 +254,14 @@ function updatesPage(
       const copyCommand = document.createElement("button");
       copyCommand.type = "button";
       copyCommand.className = "settings-update-command__copy";
-      const setCopyLabel = (copyLabel: string): void => {
-        copyCommand.replaceChildren(createRendererSettingsIcon("copy", 14), copyLabel);
+      const setCopyLabel = (label: string): void => {
+        copyCommand.replaceChildren(createRendererSettingsIcon("copy", 14), label);
       };
       setCopyLabel(messages.updateCopyCommand);
       copyCommand.addEventListener("click", () => {
         const clipboard = document.defaultView?.navigator.clipboard;
-        const restore = (copyLabel: string): void => {
-          setCopyLabel(copyLabel);
+        const restore = (label: string): void => {
+          setCopyLabel(label);
           document.defaultView?.setTimeout(() => setCopyLabel(messages.updateCopyCommand), 2_000);
         };
         if (!clipboard) {
@@ -274,9 +288,15 @@ function updatesPage(
       manualWindowsInstallerLink.href = CODEXHOST_RELEASES_LATEST_URL;
       manualWindowsInstallerLink.target = "_blank";
       manualWindowsInstallerLink.rel = "noopener noreferrer";
-      manualWindowsInstallerLink.append(messages.updateDownloadWindowsInstaller, createRendererSettingsIcon("external-link", 14));
+      manualWindowsInstallerLink.append(
+        messages.updateDownloadWindowsInstaller,
+        createRendererSettingsIcon("external-link", 14),
+      );
       manualWindowsInstallerActions.append(manualWindowsInstallerLink);
-      manualWindowsInstaller.append(manualWindowsInstallerDescription, manualWindowsInstallerActions);
+      manualWindowsInstaller.append(
+        manualWindowsInstallerDescription,
+        manualWindowsInstallerActions,
+      );
       const actions = document.createElement("div");
       actions.className = "settings-update-actions";
       const releaseLink = document.createElement("a");
@@ -284,14 +304,22 @@ function updatesPage(
       releaseLink.href = CODEXHOST_RELEASES_LATEST_URL;
       releaseLink.target = "_blank";
       releaseLink.rel = "noopener noreferrer";
-      releaseLink.append(messages.updateDownloadFromReleases, createRendererSettingsIcon("external-link", 14));
+      releaseLink.append(
+        messages.updateDownloadFromReleases,
+        createRendererSettingsIcon("external-link", 14),
+      );
       actions.append(releaseLink);
       controls.append(manualTitle, manualNpm, manualWindowsInstaller, actions);
 
+      // Release notes render below the fold, in the page scroller rather than a
+      // nested one.
       const notes = document.createElement("div");
       notes.className = "settings-update-notes-section";
+
       context.content.append(heading, metadata, panel, controls, notes);
 
+      // Presentation-only: emphasise the manual path once the automatic one has
+      // visibly failed.
       const setManualFallback = (fallback: boolean): void => {
         manualNpmDescription.textContent = windows
           ? messages.updateWindowsNpmDescription
@@ -369,7 +397,11 @@ function updatesPage(
         panel.replaceChildren();
         panel.append(createPanelHead(document, viewPhase, message));
         setManualFallback(viewPhase === "failed");
-        if (status?.phase === "downloading" && status.totalBytes !== undefined && status.downloadedBytes !== undefined) {
+        if (
+          status?.phase === "downloading" &&
+          status.totalBytes !== undefined &&
+          status.downloadedBytes !== undefined
+        ) {
           const progress = document.createElement("progress");
           progress.className = "settings-update-progress";
           progress.max = status.totalBytes;
@@ -377,7 +409,10 @@ function updatesPage(
           progress.setAttribute("aria-label", messages.updateDownloading);
           const detail = document.createElement("span");
           detail.className = "settings-update-progress-detail";
-          const percent = Math.min(100, Math.round((status.downloadedBytes / status.totalBytes) * 1000) / 10);
+          const percent = Math.min(
+            100,
+            Math.round((status.downloadedBytes / status.totalBytes) * 1000) / 10,
+          );
           detail.textContent = `${percent}% · ${formatUpdateBytes(status.downloadedBytes)} / ${formatUpdateBytes(status.totalBytes)}`;
           panel.append(progress, detail);
         }
@@ -400,7 +435,10 @@ function updatesPage(
           {
             success(result) {
               pending = false;
-              renderPendingStatus(result.status, statusMessage(result.status, messages) ?? messages.updatePreparing);
+              renderPendingStatus(
+                result.status,
+                statusMessage(result.status, messages) ?? messages.updatePreparing,
+              );
               if (isPendingStatus(result.status)) scheduleStatusPoll(client, true);
             },
             failure(error) {
@@ -414,14 +452,20 @@ function updatesPage(
       const renderCheck = (result: UpdateCheckResult, client: RendererUpdateClient): void => {
         currentVersionValue.textContent = `v${result.currentVersion}`;
         latestVersionValue.textContent = result.latestVersion ? `v${result.latestVersion}` : "-";
-        latestVersionValue.className = result.updateAvailable ? "settings-update-metadata__value--newer" : "";
+        latestVersionValue.className = result.updateAvailable
+          ? "settings-update-metadata__value--newer"
+          : "";
         installationValue.textContent = installationLabel(result.installation, messages);
         manualNpm.hidden = result.installation !== "npm";
         manualWindowsInstaller.hidden = !windows || result.installation !== "windows-installer";
         releaseLink.hidden = windows;
-        manualTitle.hidden = windows && !["npm", "windows-installer"].includes(result.installation ?? "");
+        manualTitle.hidden =
+          windows && !["npm", "windows-installer"].includes(result.installation ?? "");
         if (windows && result.installation === "windows-installer" && result.latestVersion) {
-          manualWindowsInstallerLink.href = windowsInstallerDownloadUrl(document.defaultView, result.latestVersion);
+          manualWindowsInstallerLink.href = windowsInstallerDownloadUrl(
+            document.defaultView,
+            result.latestVersion,
+          );
         }
         if (result.releaseNotesUrl) releaseLink.href = result.releaseNotesUrl;
         const operationMessage = statusMessage(result.status, messages);
@@ -430,7 +474,10 @@ function updatesPage(
           scheduleStatusPoll(client, true);
           return;
         }
-        const actionableStatus = result.status?.phase === "failed" && result.status.version === result.latestVersion ? result.status : null;
+        const actionableStatus =
+          result.status?.phase === "failed" && result.status.version === result.latestVersion
+            ? result.status
+            : null;
         const view = result.error ? "error" : result.updateAvailable ? "available" : "current";
         panel.dataset.updateState = view;
         panel.replaceChildren();
@@ -481,7 +528,9 @@ function updatesPage(
         }
         if (buttons.length > 0) panel.append(createPanelActions(document, ...buttons));
         notes.replaceChildren();
-        if (result.releaseNotes) notes.append(createReleaseNotesElement(document, result.releaseNotes));
+        if (result.releaseNotes) {
+          notes.append(createReleaseNotesElement(document, result.releaseNotes));
+        }
       };
 
       const load = (): Promise<void> => {
@@ -530,5 +579,7 @@ export function createDefaultRendererSettingsRegistry(
   getUpdateClient: () => RendererUpdateClient | null = () => null,
   getDiagnostics: () => RendererConnectionDiagnostics | null = () => null,
 ): RendererSettingsPageRegistry {
-  return createRendererSettingsPageRegistry(createDefaultRendererSettingsPages(messages, getUpdateClient, getDiagnostics));
+  return createRendererSettingsPageRegistry(
+    createDefaultRendererSettingsPages(messages, getUpdateClient, getDiagnostics),
+  );
 }
