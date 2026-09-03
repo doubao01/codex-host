@@ -521,6 +521,25 @@ export class AppServerHost {
       typeof unregisterDelegationApi === "function" ? unregisterDelegationApi : undefined;
   }
 
+  async #syncModelGatewayConfiguration(): Promise<void> {
+    const modelProviders = this.#modelProviders;
+    if (!modelProviders) return;
+    const environment = this.#options.environment ?? process.env;
+    const hasOpenAiProvider = modelProviders.registry
+      .listProvidersForRouting()
+      .some((provider) => isOpenAiWireFormat(provider.wireFormat));
+    try {
+      await syncCodexGatewayProvider({
+        configPath: defaultCodexConfigPath(environment),
+        hasOpenAiProvider,
+        endpoint: modelProviders.gateway.endpoint,
+        token: modelProviders.gateway.token,
+      });
+    } catch (error) {
+      this.#diagnose(`Model Gateway configuration sync failed: ${errorMessage(error)}`);
+    }
+  }
+
   close(): void {
     if (this.#closeRequested) return;
     this.#closeRequested = true;
@@ -530,6 +549,7 @@ export class AppServerHost {
 
   async run(): Promise<number> {
     try {
+      await this.#syncModelGatewayConfiguration();
       await this.#repository.initialize();
     } catch (error) {
       this.#diagnose(`Mapping Store initialization failed: ${errorMessage(error)}`);
