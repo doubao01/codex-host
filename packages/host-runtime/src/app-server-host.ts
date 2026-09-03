@@ -189,6 +189,7 @@ export interface AppServerHostOptions {
   onCreateRequestRoute?: (observation: CreateRequestRouteObservation) => void;
   onRequestRoute?: (observation: RequestRouteObservation) => void;
   updateCoordinator?: HostUpdateCoordinator;
+  runtimeProvider?: OfficialRuntimeProviderInjection;
   onDelegationApi?: (api: DelegationControlRegistration) => (() => void) | undefined;
 }
 
@@ -240,6 +241,31 @@ function projectAccountCredits(value: unknown): AccountCreditsSnapshot | null {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export interface OfficialRuntimeProviderInjection {
+  endpoint: string;
+  token: string;
+}
+
+/**
+ * Build the environment inherited by the stock Codex process.
+ *
+ * This is intentionally process-local: no persistent Codex TOML or .env file
+ * is mutated. OPENAI_BASE_URL is a supported override for the built-in OpenAI
+ * provider, while the short-lived gateway token is supplied only to this child.
+ */
+export function officialRuntimeEnvironment(
+  source: NodeJS.ProcessEnv,
+  injection?: OfficialRuntimeProviderInjection,
+): NodeJS.ProcessEnv {
+  const environment = officialEnvironment(source);
+  if (!injection) return environment;
+  return {
+    ...environment,
+    OPENAI_BASE_URL: injection.endpoint,
+    OPENAI_API_KEY: injection.token,
+  };
 }
 
 export function officialEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -542,7 +568,10 @@ export class AppServerHost {
         : spawnOfficialAppServerConnection({
             stockCodexPath: this.#options.stockCodexPath,
             arguments: this.#options.arguments,
-            environment: officialEnvironment(this.#options.environment ?? process.env),
+            environment: officialRuntimeEnvironment(
+              this.#options.environment ?? process.env,
+              this.#options.runtimeProvider,
+            ),
             ...(this.#options.spawnOfficial ? { spawnOfficial: this.#options.spawnOfficial } : {}),
           });
     } catch (error) {
