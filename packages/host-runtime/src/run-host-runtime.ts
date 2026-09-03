@@ -60,7 +60,7 @@ function runtimeProviderInjection(modelProviders: Awaited<ReturnType<typeof crea
   return { endpoint: modelProviders.gateway.endpoint, token: modelProviders.gateway.token };
 }
 
-function officialRuntimeArguments(arguments_: readonly string[], modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>): string[] {
+export function officialRuntimeArguments(arguments_: readonly string[], modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>): string[] {
   return [
     "--config",
     `openai_base_url=${JSON.stringify(modelProviders.gateway.endpoint)}`,
