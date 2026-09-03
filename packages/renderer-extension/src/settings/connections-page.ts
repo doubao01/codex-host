@@ -567,7 +567,7 @@ export function createConnectionsSettingsPage(
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "connections",
-    label: messages.pageLabels.connections!,
+    label: messages.pageLabels.connections ?? "Connections",
     icon: "connections",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
@@ -576,7 +576,7 @@ export function createConnectionsSettingsPage(
       const headingCopy = document.createElement("div");
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels.connections!;
+      heading.textContent = messages.pageLabels.connections ?? "Connections";
       const description = document.createElement("p");
       description.className = "settings-page-description";
       description.textContent = messages.connectionsDescription;
