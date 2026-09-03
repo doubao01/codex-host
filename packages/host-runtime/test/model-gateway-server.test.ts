@@ -133,6 +133,34 @@ describe("Model Gateway server", () => {
     }
   });
 
+  it("never forwards the ephemeral gateway credential when the provider has no API key", async () => {
+    const upstream = await mockUpstream(() => ({ status: 200, body: { ok: true } }));
+    try {
+      const gateway = await startModelGateway({
+        providers: {
+          getProvider: () => ({
+            id: openaiId,
+            name: "Keyless upstream",
+            wireFormat: "openai-chat",
+            baseUrl: upstream.url,
+          }),
+          listPool: () => [{ modelId: "local-model", providerId: openaiId, wireFormat: "openai-chat" }],
+          defaultProviderForWireFormat: () => null,
+        },
+      });
+      try {
+        await chatRequest(gateway, { model: "local-model" });
+        expect(upstream.requests).toHaveLength(1);
+        expect(upstream.requests[0]?.headers.authorization).toBeUndefined();
+        expect(upstream.requests[0]?.headers["x-api-key"]).toBeUndefined();
+      } finally {
+        await gateway.close();
+      }
+    } finally {
+      await upstream.close();
+    }
+  });
+
   it("routes a request by model and swaps the Bearer key for the routed provider", async () => {
     const upstream = await mockUpstream(() => ({ status: 200, body: { ok: true } }));
     try {
