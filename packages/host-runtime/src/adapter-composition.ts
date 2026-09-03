@@ -8,6 +8,7 @@ import { OmpAdapter } from "@codexhost/adapter-omp";
 import { BrokeredHarnessAdapter } from "@codexhost/harness-broker";
 import type { HarnessAdapter } from "@codexhost/harness-adapter";
 import type { ExternalHarnessId } from "@codexhost/protocol-core";
+import { HarnessRegistry, type HarnessManifest } from "@codexhost/shared-contracts";
 
 export const CLAUDE_CODE_COMMAND_ENV = "CODEXHOST_CLAUDE_COMMAND";
 export const DEEPSEEK_HARNESS_COMMAND_ENV = "CODEXHOST_DEEPSEEK_HARNESS_COMMAND";
@@ -19,6 +20,21 @@ export const OPENCODE_COMMAND_ENV = "CODEXHOST_OPENCODE_COMMAND";
 export const ANTIGRAVITY_COMMAND_ENV = "CODEXHOST_ANTIGRAVITY_COMMAND";
 
 type InspectableHarnessAdapter = Pick<HarnessAdapter, "inspect">;
+export function createExternalHarnessRegistry(): HarnessRegistry {
+  const registry = new HarnessRegistry();
+  const manifests: HarnessManifest[] = [
+    { id: "pi", displayName: "Pi", capabilities: ["streaming", "models", "thinking", "permissions", "history"] },
+    { id: "claude-code", displayName: "Claude Code", capabilities: ["streaming", "models", "permissions", "questions", "history"] },
+    { id: "deepseek-harness", displayName: "DeepSeek Harness", capabilities: ["streaming", "models", "thinking", "history"] },
+    { id: "opencode", displayName: "OpenCode", capabilities: ["streaming", "models", "permissions", "questions", "history"] },
+    { id: "grok", displayName: "Grok", capabilities: ["streaming", "models", "thinking", "history"] },
+    { id: "omp", displayName: "OMP", capabilities: ["streaming", "models", "thinking", "permissions", "history"] },
+    { id: "antigravity", displayName: "Antigravity", capabilities: ["streaming", "models", "thinking", "permissions", "questions", "history", "fork"] },
+  ];
+  for (const manifest of manifests) registry.register(manifest);
+  return registry;
+}
+
 
 export async function prefetchClaudeCodeModelCatalog(
   adapters: ReadonlyMap<ExternalHarnessId, InspectableHarnessAdapter>,
