@@ -99,7 +99,7 @@ export function createAgentsSettingsPage(
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "agents",
-    label: messages.pageLabels.agents,
+    label: messages.pageLabels.agents ?? "Agents",
     icon: "routes" as const,
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
@@ -107,7 +107,7 @@ export function createAgentsSettingsPage(
 
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels.agents;
+      heading.textContent = messages.pageLabels.agents ?? "Agents";
 
       const description = document.createElement("p");
       description.style.color = "var(--settings-muted)";
