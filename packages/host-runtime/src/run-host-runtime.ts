@@ -41,9 +41,20 @@ import {
 } from "./remote-official-app-server.js";
 import { createRemoteOfficialAppServerConnection } from "./remote-official-connection.js";
 import { createHostUpdateCoordinator, type HostUpdateCoordinator } from "./update-coordinator.js";
+import { startModelGateway } from "./model-gateway-server.js";
+import { createProductionModelProviderRegistry } from "./model-provider-registry.js";
 
 const STOCK_CODEX_PATH_ENV = "CODEXHOST_STOCK_CODEX_PATH";
 const DEFAULT_AGENT_ENV = "CODEXHOST_DEFAULT_AGENT";
+
+async function createModelProviderHost(environment: NodeJS.ProcessEnv): Promise<{
+  registry: Awaited<ReturnType<typeof createProductionModelProviderRegistry>>;
+  gateway: Awaited<ReturnType<typeof startModelGateway>>;
+}> {
+  const registry = await createProductionModelProviderRegistry(environment);
+  const gateway = await startModelGateway({ providers: registry });
+  return { registry, gateway };
+}
 
 export function createRemoteOfficialAppServerPlan(
   arguments_: readonly string[],
@@ -162,6 +173,7 @@ export async function runHostRuntime(input: {
         environment,
         createHost: async (delegationEnvironment, onDelegationApi) => {
           const externalAdapters = createExternalHarnessAdapters(delegationEnvironment);
+          const modelProviders = await createModelProviderHost(delegationEnvironment);
           const host = new AppServerHost({
             stockCodexPath,
             arguments: input.arguments,
@@ -169,11 +181,16 @@ export async function runHostRuntime(input: {
             environment: delegationEnvironment,
             externalAdapters,
             onDelegationApi,
+            modelProviders,
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
           void prefetchClaudeCodeModelCatalog(externalAdapters);
           void prefetchAntigravityModelCatalog(externalAdapters);
-          return host.run();
+          try {
+            return await host.run();
+          } finally {
+            await modelProviders.gateway.close();
+          }
         },
       });
     }
