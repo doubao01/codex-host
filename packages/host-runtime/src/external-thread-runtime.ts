@@ -21,7 +21,6 @@ import {
 } from "@codexhost/protocol-core";
 import { HarnessOutputChannel } from "@codexhost/harness-adapter";
 import {
-  HarnessRegistry,
   permissionModeFixedAtCreate,
   type HarnessId,
   type HarnessPermissionModeId,
@@ -30,6 +29,7 @@ import {
   type HostTurnId,
   type NativeSessionRef,
   type RuntimeSessionContext,
+  type HarnessRegistry,
 } from "@codexhost/shared-contracts";
 
 import { createExternalHarnessRegistry } from "./adapter-composition.js";
