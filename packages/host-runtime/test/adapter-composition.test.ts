@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { createExternalHarnessRegistry,
+   describe, expect, it, vi } from "vitest";
 import path from "node:path";
 
 import type { HarnessInspection } from "@codexhost/harness-adapter";
@@ -129,5 +130,23 @@ describe("Host external Harness composition", () => {
       error: { code: "unavailable", stage: "harnessBroker" },
     });
     await Promise.all([...adapters.values()].map((adapter) => adapter.close()));
+  });
+});
+
+
+describe("createExternalHarnessRegistry", () => {
+  it("registers every built-in harness with capability metadata", () => {
+    const registry = createExternalHarnessRegistry();
+    expect(registry.list().map((manifest) => manifest.id).sort()).toEqual([
+      "antigravity",
+      "claude-code",
+      "deepseek-harness",
+      "grok",
+      "omp",
+      "opencode",
+      "pi",
+    ]);
+    expect(registry.supports("pi", "streaming")).toBe(true);
+    expect(registry.supports("antigravity", "fork")).toBe(true);
   });
 });
