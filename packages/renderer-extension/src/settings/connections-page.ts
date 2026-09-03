@@ -517,12 +517,6 @@ function connectionItems(
   ];
 }
 
-// Lets another surface (currently: the Agent picker's error indicator, see
-// renderer-agent-picker.ts) ask the Connections page to focus a specific
-// Agent's row the next time it mounts, instead of falling back to "the
-// first Agent that needs attention". Consumed once, then cleared — if the
-// requested Agent isn't present under whichever Host tab is selected by
-// default, this silently falls through to the existing fallback below.
 let pendingFocusAgent: string | null = null;
 
 export function requestConnectionsPageFocus(agentKey: string): void {
@@ -573,7 +567,7 @@ export function createConnectionsSettingsPage(
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "connections",
-    label: messages.pageLabels.connections,
+    label: messages.pageLabels.connections!,
     icon: "connections",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
@@ -582,7 +576,7 @@ export function createConnectionsSettingsPage(
       const headingCopy = document.createElement("div");
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels.connections;
+      heading.textContent = messages.pageLabels.connections!;
       const description = document.createElement("p");
       description.className = "settings-page-description";
       description.textContent = messages.connectionsDescription;
@@ -780,8 +774,6 @@ export function createConnectionsSettingsPage(
           rows.append(row);
         }
 
-        // Only real, switchable external Agents participate in the
-        // Main / More grouping — the Renderer adapter above stays pinned.
         const groupableItems = items.filter(
           (item): item is ConnectionListItem & { agentSnapshot: RendererConnectionAgentSnapshot } =>
             item.agentSnapshot !== undefined,
@@ -807,8 +799,6 @@ export function createConnectionsSettingsPage(
         };
 
         let draggingAgent: ExternalRendererAgent | null = null;
-        // Assigned below only when there is at least one groupable Agent to
-        // show a More zone for; guarded everywhere it's read.
         let moreZone: HTMLElement | null = null;
         const clearDropIndicators = (): void => {
           for (const row of rowElements.values()) row.dataset.connectionDropIndicator = "";
@@ -961,8 +951,6 @@ export function createConnectionsSettingsPage(
       };
 
       render(diagnostics?.snapshot() ?? null);
-      // Keep the Main / More grouping in sync with any other open picker or
-      // settings instance (e.g. the Agent picker's "Manage" shortcut).
       const unsubscribeGroup = groupPreference.subscribe(() =>
         render(diagnostics?.snapshot() ?? latestSnapshot),
       );
