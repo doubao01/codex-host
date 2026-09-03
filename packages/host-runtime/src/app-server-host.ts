@@ -190,6 +190,8 @@ export interface AppServerHostOptions {
   onRequestRoute?: (observation: RequestRouteObservation) => void;
   updateCoordinator?: HostUpdateCoordinator;
   runtimeProvider?: OfficialRuntimeProviderInjection;
+  /** Compatibility hook for runtime-owned model services. */
+  modelProviders?: unknown;
   onDelegationApi?: (api: DelegationControlRegistration) => (() => void) | undefined;
 }
 
@@ -252,8 +254,8 @@ export interface OfficialRuntimeProviderInjection {
  * Build the environment inherited by the stock Codex process.
  *
  * This is intentionally process-local: no persistent Codex TOML or .env file
- * is mutated. OPENAI_BASE_URL is a supported override for the built-in OpenAI
- * provider, while the short-lived gateway token is supplied only to this child.
+ * is mutated. The base URL is passed as an explicit Codex --config override,
+ * while the short-lived gateway token is supplied only to this child.
  */
 export function officialRuntimeEnvironment(
   source: NodeJS.ProcessEnv,
@@ -263,7 +265,6 @@ export function officialRuntimeEnvironment(
   if (!injection) return environment;
   return {
     ...environment,
-    OPENAI_BASE_URL: injection.endpoint,
     OPENAI_API_KEY: injection.token,
   };
 }
@@ -567,7 +568,7 @@ export class AppServerHost {
         ? await this.#options.createOfficialConnection()
         : spawnOfficialAppServerConnection({
             stockCodexPath: this.#options.stockCodexPath,
-            arguments: this.#options.arguments,
+            arguments: this.#officialArguments(),
             environment: officialRuntimeEnvironment(
               this.#options.environment ?? process.env,
               this.#options.runtimeProvider,
@@ -661,6 +662,13 @@ export class AppServerHost {
         await this.#repository.close().catch((error) => this.#diagnose(error));
       }
     }
+  }
+
+  #officialArguments(): string[] {
+    const arguments_ = [...this.#options.arguments];
+    const endpoint = this.#options.runtimeProvider?.endpoint;
+    if (!endpoint) return arguments_;
+    return ["--config", `openai_base_url=${JSON.stringify(endpoint)}`, ...arguments_];
   }
 
   #terminateOfficial(): void {
