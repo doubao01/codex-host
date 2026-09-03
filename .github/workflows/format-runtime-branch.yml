@@ -33,8 +33,9 @@ jobs:
 
       - name: Preview workflow formatting
         run: |
-          npx prettier --write .github/workflows/ci.yml
-          cat .github/workflows/ci.yml
+          echo '--- PRETTIER CI YAML ---'
+          npx prettier .github/workflows/ci.yml
+          echo '--- END PRETTIER CI YAML ---'
 
       - name: Format TypeScript and Rust
         run: npm run format
