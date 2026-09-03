@@ -145,13 +145,13 @@ function formatUpdateBytes(value: number): string {
 function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "about",
-    label: messages.pageLabels.about,
+    label: messages.pageLabels.about!,
     icon: "about",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels.about;
+      heading.textContent = messages.pageLabels.about!;
 
       const panel = document.createElement("section");
       panel.className = "settings-about-panel";
@@ -201,17 +201,15 @@ function updatesPage(
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "updates",
-    label: messages.pageLabels.updates,
+    label: messages.pageLabels.updates!,
     icon: "updates",
     mount(context: RendererSettingsPageMountContext) {
       const document = context.content.ownerDocument;
       const windows = isWindowsRenderer(document.defaultView);
       const heading = document.createElement("div");
       heading.className = "settings-section-label";
-      heading.textContent = messages.pageLabels.updates;
+      heading.textContent = messages.pageLabels.updates!;
 
-      // Version summary: current, latest, and installation sit side by side so the
-      // comparison is readable without scrolling.
       const metadata = document.createElement("div");
       metadata.className = "settings-update-metadata";
       const createMetadataItem = (label: string): HTMLElement => {
@@ -233,9 +231,6 @@ function updatesPage(
       panel.className = "settings-update-panel";
       panel.setAttribute("aria-live", "polite");
 
-      // Manual update stays visible directly under the status panel: automatic
-      // updates can fail for reasons local to the machine, and the fallback path
-      // should never be more than a glance away.
       const controls = document.createElement("div");
       controls.className = "settings-update-controls";
       const manualTitle = document.createElement("div");
@@ -311,15 +306,11 @@ function updatesPage(
       actions.append(releaseLink);
       controls.append(manualTitle, manualNpm, manualWindowsInstaller, actions);
 
-      // Release notes render below the fold, in the page scroller rather than a
-      // nested one.
       const notes = document.createElement("div");
       notes.className = "settings-update-notes-section";
 
       context.content.append(heading, metadata, panel, controls, notes);
 
-      // Presentation-only: emphasise the manual path once the automatic one has
-      // visibly failed.
       const setManualFallback = (fallback: boolean): void => {
         manualNpmDescription.textContent = windows
           ? messages.updateWindowsNpmDescription
