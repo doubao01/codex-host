@@ -56,6 +56,10 @@ async function createModelProviderHost(environment: NodeJS.ProcessEnv): Promise<
   return { registry, gateway };
 }
 
+function runtimeProviderInjection(modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>) {
+  return { endpoint: modelProviders.gateway.endpoint, token: modelProviders.gateway.token };
+}
+
 export function createRemoteOfficialAppServerPlan(
   arguments_: readonly string[],
   desktopControlSocketPath: string,
@@ -182,6 +186,7 @@ export async function runHostRuntime(input: {
             externalAdapters,
             onDelegationApi,
             modelProviders,
+            runtimeProvider: runtimeProviderInjection(modelProviders),
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
           void prefetchClaudeCodeModelCatalog(externalAdapters);
@@ -201,10 +206,15 @@ export async function runHostRuntime(input: {
         const officialPlan = createRemoteControlOfficialAppServerPlan(
           remoteControlPlan.officialArguments,
         );
+        const modelProviders = await createModelProviderHost(delegationEnvironment);
         const officialListener = createLoopbackOfficialAppServerListener({
           stockCodexPath,
           arguments: officialPlan.listenerArguments,
-          environment: officialEnvironment(delegationEnvironment),
+          environment: {
+            ...officialEnvironment(delegationEnvironment),
+            OPENAI_BASE_URL: modelProviders.gateway.endpoint,
+            OPENAI_API_KEY: modelProviders.gateway.token,
+          },
           diagnosticOutput: process.stderr,
         });
         let officialEndpoint: string | null = null;
@@ -217,7 +227,6 @@ export async function runHostRuntime(input: {
         const mappingStore = createProductionExternalThreadStore(delegationEnvironment);
         await mappingStore.initialize();
         const externalAdapters = createExternalHarnessAdapters(delegationEnvironment);
-        const modelProviders = await createModelProviderHost(delegationEnvironment);
         const host = new AppServerHost({
           stockCodexPath,
           arguments: input.arguments,
@@ -229,6 +238,7 @@ export async function runHostRuntime(input: {
           createOfficialConnection,
           onDelegationApi,
           modelProviders,
+          runtimeProvider: runtimeProviderInjection(modelProviders),
           ...(updateCoordinator ? { updateCoordinator } : {}),
         });
         const listener = createRemoteAppServerWebSocketListener({
@@ -252,6 +262,7 @@ export async function runHostRuntime(input: {
               createOfficialConnection,
               onDelegationApi: (api) => registry.register(api),
               modelProviders,
+              runtimeProvider: runtimeProviderInjection(modelProviders),
               ...(updateCoordinator ? { updateCoordinator } : {}),
             });
           },
@@ -296,16 +307,20 @@ export async function runHostRuntime(input: {
     createHost: async (delegationEnvironment, _onDelegationApi, registry) => {
       const socketPath = remoteAppServerSocketPath(delegationEnvironment, listenUrl);
       const officialPlan = createRemoteOfficialAppServerPlan(input.arguments, socketPath);
+      const modelProviders = await createModelProviderHost(delegationEnvironment);
       const officialListener = createRemoteOfficialAppServerListener({
         stockCodexPath,
         arguments: officialPlan.listenerArguments,
         socketPath: officialPlan.socketPath,
-        environment: officialEnvironment(delegationEnvironment),
+        environment: {
+          ...officialEnvironment(delegationEnvironment),
+          OPENAI_BASE_URL: modelProviders.gateway.endpoint,
+          OPENAI_API_KEY: modelProviders.gateway.token,
+        },
         diagnosticOutput: process.stderr,
       });
       const mappingStore = createProductionExternalThreadStore(delegationEnvironment);
       await mappingStore.initialize();
-      const modelProviders = await createModelProviderHost(delegationEnvironment);
       const listener = createRemoteAppServerWebSocketListener({
         socketPath,
         diagnosticOutput: process.stderr,
@@ -330,6 +345,7 @@ export async function runHostRuntime(input: {
               createRemoteOfficialAppServerConnection(officialPlan.socketPath),
             onDelegationApi: (api) => registry.register(api),
             modelProviders,
+            runtimeProvider: runtimeProviderInjection(modelProviders),
             ...(updateCoordinator ? { updateCoordinator } : {}),
           });
         },
@@ -368,6 +384,7 @@ export async function runHostRuntime(input: {
             await officialListener.close();
           } finally {
             await mappingStore.close();
+            await modelProviders.gateway.close();
           }
         }
       }
