@@ -1,5 +1,4 @@
-import { createExternalHarnessRegistry,
-   describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import path from "node:path";
 
 import type { HarnessInspection } from "@codexhost/harness-adapter";
@@ -8,6 +7,8 @@ import {
   GROK_COMMAND_ENV,
   OPENCODE_COMMAND_ENV,
   createExternalHarnessAdapters,
+  createExternalHarnessRegistry,
+  projectHarnessCapabilities,
   prefetchAntigravityModelCatalog,
   prefetchClaudeCodeModelCatalog,
 } from "../src/index.js";
@@ -135,6 +136,19 @@ describe("Host external Harness composition", () => {
 
 
 describe("createExternalHarnessRegistry", () => {
+  it("projects manifest capabilities into a runtime-safe capability contract", () => {
+    const registry = createExternalHarnessRegistry();
+    const projection = projectHarnessCapabilities(registry, "antigravity");
+
+    expect(projection).toMatchObject({
+      id: "antigravity",
+      displayName: "Antigravity",
+    });
+    expect(projection?.supports("fork")).toBe(true);
+    expect(projection?.supports("questions")).toBe(true);
+    expect(projectHarnessCapabilities(registry, "unknown" as never)).toBeNull();
+  });
+
   it("registers every built-in harness with capability metadata", () => {
     const registry = createExternalHarnessRegistry();
     expect(registry.list().map((manifest) => manifest.id).sort()).toEqual([
