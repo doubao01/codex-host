@@ -5,7 +5,10 @@ import { z } from "zod";
 
 export const runtimeSessionContextSchema = z
   .object({
-    threadId: z.string().min(1).transform((value) => value as HostThreadId),
+    threadId: z
+      .string()
+      .min(1)
+      .transform((value) => value as HostThreadId),
     harnessId: harnessIdSchema,
     sessionId: z.string().min(1),
     modelId: z.string().min(1),

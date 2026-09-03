@@ -1,7 +1,4 @@
-import {
-  modelProviderIdSchema,
-  type ModelProviderListResult,
-} from "@codexhost/shared-contracts";
+import { modelProviderIdSchema, type ModelProviderListResult } from "@codexhost/shared-contracts";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/settings/icons.js", () => ({
@@ -292,8 +289,9 @@ describe("Renderer Model Services settings page", () => {
     await vi.waitFor(() => buttonWithLabel(content, "Add source"));
     buttonWithLabel(content, "Add source").dispatch("click");
     const form = formElement(content);
-    expect(descendants(content).some(({ dataset }) => dataset.modelProviderExpand === "__new__"))
-      .toBe(true);
+    expect(
+      descendants(content).some(({ dataset }) => dataset.modelProviderExpand === "__new__"),
+    ).toBe(true);
 
     const wireFormat = fieldControl(form, "Wire format", "select");
     const baseUrl = fieldControl(form, "API base URL", "input");
@@ -460,8 +458,9 @@ describe("Renderer Model Services settings page", () => {
     // openForm re-renders the list, so re-locate the freshly expanded card.
     const expandedCard = cardFor(content, gatewayId);
     const form = formElement(expandedCard);
-    expect(descendants(expandedCard).some(({ dataset }) => dataset.modelProviderExpand !== undefined))
-      .toBe(true);
+    expect(
+      descendants(expandedCard).some(({ dataset }) => dataset.modelProviderExpand !== undefined),
+    ).toBe(true);
     // Saved key hint, not the key itself.
     const apiKeyField = fieldLabel(form, "API token");
     expect(visibleText(apiKeyField)).toContain("Key saved");

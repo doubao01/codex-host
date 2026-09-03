@@ -37,7 +37,11 @@ import type {
   DelegationControlApi,
   DelegationControlRegistration,
 } from "../src/delegation-types.js";
-import { AppServerHost, officialRuntimeEnvironment, type HostUpdateCoordinator } from "../src/index.js";
+import {
+  AppServerHost,
+  officialRuntimeEnvironment,
+  type HostUpdateCoordinator,
+} from "../src/index.js";
 import type { OfficialAppServerConnection } from "../src/official-app-server-connection.js";
 
 class FakeOfficialProcess extends EventEmitter {
@@ -332,11 +336,16 @@ async function stopFixture(fixture: ReturnType<typeof createFixture>): Promise<v
 }
 
 describe("AppServerHost HarnessAdapter projection", () => {
-
   it("injects the Gateway token into the official child environment only", () => {
-    expect(officialRuntimeEnvironment({ VISIBLE: "yes" }, {
-      endpoint: "http://127.0.0.1:43123/v1", token: "ephemeral-token",
-    })).toMatchObject({
+    expect(
+      officialRuntimeEnvironment(
+        { VISIBLE: "yes" },
+        {
+          endpoint: "http://127.0.0.1:43123/v1",
+          token: "ephemeral-token",
+        },
+      ),
+    ).toMatchObject({
       VISIBLE: "yes",
       OPENAI_API_KEY: "ephemeral-token",
     });

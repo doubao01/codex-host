@@ -1,6 +1,10 @@
 import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
 import type { StoredThreadRecordV1 } from "@codexhost/mapping-store";
-import { harnessIdSchema, hostThreadIdSchema, nativeSessionRefSchema } from "@codexhost/shared-contracts";
+import {
+  harnessIdSchema,
+  hostThreadIdSchema,
+  nativeSessionRefSchema,
+} from "@codexhost/shared-contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ExternalThreadRepository } from "../src/external-thread-repository.js";

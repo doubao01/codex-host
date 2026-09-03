@@ -1,11 +1,5 @@
 export type HarnessCapability =
-  | "streaming"
-  | "models"
-  | "thinking"
-  | "permissions"
-  | "questions"
-  | "history"
-  | "fork";
+  "streaming" | "models" | "thinking" | "permissions" | "questions" | "history" | "fork";
 
 export interface HarnessManifest {
   id: string;
@@ -26,7 +20,10 @@ export class HarnessRegistry {
     if (this.manifests.has(manifest.id)) {
       throw new Error(`Harness already registered: ${manifest.id}`);
     }
-    this.manifests.set(manifest.id, Object.freeze({ ...manifest, capabilities: [...manifest.capabilities] }));
+    this.manifests.set(
+      manifest.id,
+      Object.freeze({ ...manifest, capabilities: [...manifest.capabilities] }),
+    );
   }
 
   get(id: string): HarnessManifest | undefined {

@@ -134,7 +134,6 @@ describe("Host external Harness composition", () => {
   });
 });
 
-
 describe("createExternalHarnessRegistry", () => {
   it("projects manifest capabilities into a runtime-safe capability contract", () => {
     const registry = createExternalHarnessRegistry();
@@ -151,15 +150,12 @@ describe("createExternalHarnessRegistry", () => {
 
   it("registers every built-in harness with capability metadata", () => {
     const registry = createExternalHarnessRegistry();
-    expect(registry.list().map((manifest) => manifest.id).sort()).toEqual([
-      "antigravity",
-      "claude-code",
-      "deepseek-harness",
-      "grok",
-      "omp",
-      "opencode",
-      "pi",
-    ]);
+    expect(
+      registry
+        .list()
+        .map((manifest) => manifest.id)
+        .sort(),
+    ).toEqual(["antigravity", "claude-code", "deepseek-harness", "grok", "omp", "opencode", "pi"]);
     expect(registry.supports("pi", "streaming")).toBe(true);
     expect(registry.supports("antigravity", "fork")).toBe(true);
   });

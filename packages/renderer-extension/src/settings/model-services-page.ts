@@ -651,7 +651,12 @@ export function createModelServicesSettingsPage(
             },
           );
         });
-        addModelRow.append(addModelIdInput, addModelLabelInput, addModelContextInput, addModelButton);
+        addModelRow.append(
+          addModelIdInput,
+          addModelLabelInput,
+          addModelContextInput,
+          addModelButton,
+        );
         modelsBlock.append(modelsHead, candidates, poolList, addModelRow);
 
         // 5. Remark (the source display name; also the slug source).
@@ -829,14 +834,10 @@ export function createModelServicesSettingsPage(
           for (const model of fetched) {
             const inPool =
               providerId !== null &&
-              pool.some(
-                (entry) => entry.modelId === model.id && entry.providerId === providerId,
-              );
+              pool.some((entry) => entry.modelId === model.id && entry.providerId === providerId);
             const row = document.createElement("label");
             row.className = "settings-model-provider-candidate";
-            row.dataset.modelCandidate = providerId
-              ? `${providerId}/${model.id}`
-              : model.id;
+            row.dataset.modelCandidate = providerId ? `${providerId}/${model.id}` : model.id;
             const checkbox = document.createElement("input");
             checkbox.type = "checkbox";
             checkbox.checked = inPool;
@@ -930,7 +931,11 @@ export function createModelServicesSettingsPage(
             );
             removeButton.addEventListener("click", () => {
               runRequest(
-                () => client.removeModelPoolEntry({ modelId: entry.modelId, providerId: entry.providerId }),
+                () =>
+                  client.removeModelPoolEntry({
+                    modelId: entry.modelId,
+                    providerId: entry.providerId,
+                  }),
                 (result) => {
                   latest = result;
                   render(result);

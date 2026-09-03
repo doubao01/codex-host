@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  officialEnvironment,
-  officialRuntimeEnvironment,
-} from "../src/app-server-host.js";
+import { officialEnvironment, officialRuntimeEnvironment } from "../src/app-server-host.js";
 import { officialRuntimeArguments } from "../src/run-host-runtime.js";
 
 describe("runtime provider injection", () => {

@@ -46,18 +46,53 @@ export function projectHarnessCapabilities(
 export function createExternalHarnessRegistry(): HarnessRegistry {
   const registry = new HarnessRegistry();
   const manifests: HarnessManifest[] = [
-    { id: "pi", displayName: "Pi", capabilities: ["streaming", "models", "thinking", "permissions", "history"] },
-    { id: "claude-code", displayName: "Claude Code", capabilities: ["streaming", "models", "permissions", "questions", "history"] },
-    { id: "deepseek-harness", displayName: "DeepSeek Harness", capabilities: ["streaming", "models", "thinking", "history"] },
-    { id: "opencode", displayName: "OpenCode", capabilities: ["streaming", "models", "permissions", "questions", "history"] },
-    { id: "grok", displayName: "Grok", capabilities: ["streaming", "models", "thinking", "history"] },
-    { id: "omp", displayName: "OMP", capabilities: ["streaming", "models", "thinking", "permissions", "history"] },
-    { id: "antigravity", displayName: "Antigravity", capabilities: ["streaming", "models", "thinking", "permissions", "questions", "history", "fork"] },
+    {
+      id: "pi",
+      displayName: "Pi",
+      capabilities: ["streaming", "models", "thinking", "permissions", "history"],
+    },
+    {
+      id: "claude-code",
+      displayName: "Claude Code",
+      capabilities: ["streaming", "models", "permissions", "questions", "history"],
+    },
+    {
+      id: "deepseek-harness",
+      displayName: "DeepSeek Harness",
+      capabilities: ["streaming", "models", "thinking", "history"],
+    },
+    {
+      id: "opencode",
+      displayName: "OpenCode",
+      capabilities: ["streaming", "models", "permissions", "questions", "history"],
+    },
+    {
+      id: "grok",
+      displayName: "Grok",
+      capabilities: ["streaming", "models", "thinking", "history"],
+    },
+    {
+      id: "omp",
+      displayName: "OMP",
+      capabilities: ["streaming", "models", "thinking", "permissions", "history"],
+    },
+    {
+      id: "antigravity",
+      displayName: "Antigravity",
+      capabilities: [
+        "streaming",
+        "models",
+        "thinking",
+        "permissions",
+        "questions",
+        "history",
+        "fork",
+      ],
+    },
   ];
   for (const manifest of manifests) registry.register(manifest);
   return registry;
 }
-
 
 export async function prefetchClaudeCodeModelCatalog(
   adapters: ReadonlyMap<ExternalHarnessId, InspectableHarnessAdapter>,

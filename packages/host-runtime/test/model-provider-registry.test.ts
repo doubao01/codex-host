@@ -232,9 +232,24 @@ describe("ModelProviderRegistry", () => {
               baseUrl: "https://api.example.com/v1",
               apiKey: "sk-secret",
             },
-            { id: "claude-direct", name: "Claude Direct", protocol: "anthropic", baseUrl: "https://api.anthropic.com" },
-            { id: "local-ollama", name: "Ollama", protocol: "ollama", baseUrl: "http://localhost:11434" },
-            { id: "local-lmstudio", name: "LM Studio", protocol: "lmstudio", baseUrl: "http://localhost:1234" },
+            {
+              id: "claude-direct",
+              name: "Claude Direct",
+              protocol: "anthropic",
+              baseUrl: "https://api.anthropic.com",
+            },
+            {
+              id: "local-ollama",
+              name: "Ollama",
+              protocol: "ollama",
+              baseUrl: "http://localhost:11434",
+            },
+            {
+              id: "local-lmstudio",
+              name: "LM Studio",
+              protocol: "lmstudio",
+              baseUrl: "http://localhost:1234",
+            },
           ],
           pool: [
             { modelId: "gpt-5", label: "GPT-5", providerId: "my-gateway", protocol: "openai" },

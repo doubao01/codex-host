@@ -184,10 +184,7 @@ export async function startModelGateway(input: {
   }
 
   /** Wire formats are interchangeable within the OpenAI-compatible group. */
-  function wireFormatsCompatible(
-    a: ModelProviderWireFormat,
-    b: ModelProviderWireFormat,
-  ): boolean {
+  function wireFormatsCompatible(a: ModelProviderWireFormat, b: ModelProviderWireFormat): boolean {
     return isOpenAiWireFormat(a) === isOpenAiWireFormat(b);
   }
 
@@ -390,9 +387,7 @@ export async function startModelGateway(input: {
         return;
       }
       let lastFailure:
-        | { kind: "status"; status: number }
-        | { kind: "network"; message: string }
-        | null = null;
+        { kind: "status"; status: number } | { kind: "network"; message: string } | null = null;
       for (const provider of candidates) {
         const forwardPath =
           provider.path !== undefined && provider.path.length > 0 ? provider.path : url.pathname;

@@ -56,11 +56,16 @@ async function createModelProviderHost(environment: NodeJS.ProcessEnv): Promise<
   return { registry, gateway };
 }
 
-function runtimeProviderInjection(modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>) {
+function runtimeProviderInjection(
+  modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>,
+) {
   return { endpoint: modelProviders.gateway.endpoint, token: modelProviders.gateway.token };
 }
 
-export function officialRuntimeArguments(arguments_: readonly string[], modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>): string[] {
+export function officialRuntimeArguments(
+  arguments_: readonly string[],
+  modelProviders: Awaited<ReturnType<typeof createModelProviderHost>>,
+): string[] {
   return [
     "--config",
     `openai_base_url=${JSON.stringify(modelProviders.gateway.endpoint)}`,

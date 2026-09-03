@@ -144,7 +144,9 @@ describe("Model Gateway server", () => {
             wireFormat: "openai-chat",
             baseUrl: upstream.url,
           }),
-          listPool: () => [{ modelId: "local-model", providerId: openaiId, wireFormat: "openai-chat" }],
+          listPool: () => [
+            { modelId: "local-model", providerId: openaiId, wireFormat: "openai-chat" },
+          ],
           defaultProviderForWireFormat: () => null,
         },
       });
@@ -692,9 +694,7 @@ describe("Model Gateway server", () => {
                     apiKey: "sk-fallback",
                   }
                 : null,
-          listPool: () => [
-            { modelId: "gpt-5", providerId: openaiId, wireFormat: "openai-chat" },
-          ],
+          listPool: () => [{ modelId: "gpt-5", providerId: openaiId, wireFormat: "openai-chat" }],
           // The fallback is first in configuration order; the pool-exact provider is not.
           defaultProviderForWireFormat: () => ({
             id: fallbackId,

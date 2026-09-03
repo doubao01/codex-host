@@ -49,7 +49,11 @@ describe("runtime session context builder", () => {
           harnessId: "pi",
           transportModelId: "pi:default",
         },
-        session: { initialState: { nativeRef: { harnessId: "pi", nativeSessionId: "native-1", formatVersion: 1 } } },
+        session: {
+          initialState: {
+            nativeRef: { harnessId: "pi", nativeSessionId: "native-1", formatVersion: 1 },
+          },
+        },
         registry: new HarnessRegistry(),
         sessionId: "session-1",
       }),

@@ -93,13 +93,13 @@ function migrateV1(store: ModelProviderStoreV1): ModelProviderStoreMigrated {
       name: provider.name,
       wireFormat: V1_WIRE_FORMAT[provider.protocol as "openai" | "anthropic"],
       baseUrl: provider.baseUrl,
-      ...(provider.apiKey !== undefined && provider.apiKey.length > 0 ? { apiKey: provider.apiKey } : {}),
+      ...(provider.apiKey !== undefined && provider.apiKey.length > 0
+        ? { apiKey: provider.apiKey }
+        : {}),
     }));
   const keptIds = new Set(providers.map((provider) => provider.id));
   const pool = store.pool
-    .filter(
-      (entry) => keptIds.has(entry.providerId) && keptProtocols.has(entry.protocol),
-    )
+    .filter((entry) => keptIds.has(entry.providerId) && keptProtocols.has(entry.protocol))
     .map((entry) => ({
       modelId: entry.modelId,
       ...(entry.label !== undefined ? { label: entry.label } : {}),
@@ -110,7 +110,11 @@ function migrateV1(store: ModelProviderStoreV1): ModelProviderStoreMigrated {
 }
 
 function parseStore(value: unknown): ModelProviderStore {
-  if (value !== null && typeof value === "object" && (value as { version?: unknown }).version === 1) {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { version?: unknown }).version === 1
+  ) {
     const v1 = modelProviderStoreSchemaV1.safeParse(value);
     if (v1.success) {
       const migrated = modelProviderStoreSchema.safeParse(migrateV1(v1.data));
