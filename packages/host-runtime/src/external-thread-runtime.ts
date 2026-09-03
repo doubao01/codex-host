@@ -21,6 +21,7 @@ import {
 } from "@codexhost/protocol-core";
 import { HarnessOutputChannel } from "@codexhost/harness-adapter";
 import {
+  HarnessRegistry,
   permissionModeFixedAtCreate,
   type HarnessId,
   type HarnessPermissionModeId,
@@ -28,8 +29,11 @@ import {
   type HostInteractionId,
   type HostTurnId,
   type NativeSessionRef,
+  type RuntimeSessionContext,
 } from "@codexhost/shared-contracts";
 
+import { createExternalHarnessRegistry } from "./adapter-composition.js";
+import { createRuntimeSessionContext } from "./runtime-session-context.js";
 import {
   externalThreadValue,
   type ExternalThreadRepository,
@@ -53,6 +57,7 @@ export interface ExternalThread {
   requestedPermissionModeId?: HarnessPermissionModeId;
   record: StoredThreadRecordV1;
   sessionId: string;
+  runtimeSessionContext: RuntimeSessionContext;
   stateObserver: SessionStateObserver;
   thread: JsonObject;
   transportModelId: string;
@@ -191,6 +196,7 @@ export class ExternalThreadRuntime {
   readonly #diagnose: (error: unknown) => void;
   readonly #environment: NodeJS.ProcessEnv;
   readonly #repository: ExternalThreadRepository;
+  readonly #harnessRegistry: HarnessRegistry;
   readonly #restores = new Map<string, Promise<ExternalThread>>();
   readonly #threads = new Map<string, ExternalThread>();
 
@@ -200,10 +206,12 @@ export class ExternalThreadRuntime {
     repository: ExternalThreadRepository;
     consumeOutputs(thread: ExternalThread): Promise<void>;
     diagnose(error: unknown): void;
+    harnessRegistry?: HarnessRegistry;
   }) {
     this.#adapters = input.adapters;
     this.#environment = input.environment ?? process.env;
     this.#repository = input.repository;
+    this.#harnessRegistry = input.harnessRegistry ?? createExternalHarnessRegistry();
     this.#consumeOutputs = input.consumeOutputs;
     this.#diagnose = input.diagnose;
   }
@@ -241,6 +249,12 @@ export class ExternalThreadRuntime {
     if (!this.#adapters.has(harnessId)) {
       throw new Error(`External Harness '${input.record.harnessId}' is not registered`);
     }
+    const runtimeSessionContext = createRuntimeSessionContext({
+      record: input.record,
+      session: input.session,
+      registry: this.#harnessRegistry,
+      sessionId: input.sessionId,
+    });
     const initialState = input.restoredState ?? input.session.initialState;
     const effectiveModel = input.requestedModel ?? initialState.effectiveModel;
     const effectiveThinkingOptionId =
@@ -268,6 +282,7 @@ export class ExternalThreadRuntime {
         : {}),
       record: input.record,
       sessionId: input.sessionId,
+      runtimeSessionContext,
       stateObserver: new SessionStateObserver(observerState),
       thread: input.thread,
       transportModelId: input.transportModelId ?? input.record.transportModelId,
@@ -516,9 +531,6 @@ export class ExternalThreadRuntime {
         ? restoredState.effectivePermissionModeId
         : restoredSelection?.permissionModeId;
       let transportModelId = aligned.record.transportModelId;
-      // OMP can silently replace an unavailable Model during resume, while OpenCode's
-      // additive Permission API cannot reliably restore a stale mode. Persist live state so the
-      // next restore does not reapply an obsolete transport token.
       if ((harnessId === "omp" || harnessId === "opencode") && effectiveModel) {
         const liveSelection: ExternalConfigurationSelection = {
           model: effectiveModel,
