@@ -104,6 +104,8 @@ export type {
   CreateHostUpdateCoordinatorOptions,
   HostUpdateCoordinator,
 } from "./update-coordinator.js";
+export { createRuntimeProviderContext } from "./runtime-provider-context.js";
+export type { RuntimeGatewayCredentials } from "./runtime-provider-context.js";
 export { classifyThreadPurpose, RequestRouteObservationTracker } from "./route-observation.js";
 export type {
   CreateRequestRouteObservation,
