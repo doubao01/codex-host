@@ -21,6 +21,7 @@ describe("ExternalThreadRuntime session context integration", () => {
     const nativeRef = opened.value.initialState.nativeRef;
     const model = opened.value.initialState.effectiveModel;
     if (!nativeRef || !model) throw new Error("Fake Session did not expose native/model identity");
+    const requestedModel = { ...model, id: `${model.id}-requested` };
 
     const runtime = new ExternalThreadRuntime({
       adapters: new Map([["pi", adapter]]),
@@ -50,6 +51,7 @@ describe("ExternalThreadRuntime session context integration", () => {
       } as unknown as StoredThreadRecordV1,
       session: opened.value,
       sessionId: "session-1",
+      requestedModel,
       thread: { id: hostThreadId },
       turns: [],
     });
@@ -58,8 +60,9 @@ describe("ExternalThreadRuntime session context integration", () => {
       threadId: hostThreadId,
       harnessId,
       sessionId: "session-1",
-      modelId: model.id,
+      modelId: requestedModel.id,
     });
+    expect(thread.stateObserver.snapshot().effectiveModel?.id).toBe(requestedModel.id);
     expect(thread.runtimeSessionContext.capabilitySnapshot).toEqual([
       "streaming",
       "models",
