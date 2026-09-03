@@ -204,7 +204,7 @@ export function mountRendererSettingsTrigger(
   updateButton.append(createRendererSettingsIcon("updates", 15));
 
   const updateLabel = ownerDocument.createElement("span");
-  updateLabel.textContent = messages.pageLabels.updates!;
+  updateLabel.textContent = messages.pageLabels.updates ?? "Updates";
   updateLabel.style.fontSize = "12px";
   updateLabel.style.fontWeight = "600";
   updateLabel.style.lineHeight = "1";
