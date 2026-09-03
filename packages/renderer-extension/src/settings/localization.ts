@@ -123,6 +123,7 @@ export interface RendererSettingsMessages {
   readonly aboutRepository: string;
   readonly pageLabels: Readonly<Record<string, string>>;
   /** Feature pages may add localized strings without changing the core settings contract. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly [messageKey: string]: any;
 }
 
