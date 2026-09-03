@@ -178,3 +178,4 @@ export const packageMetadata = {
 } as const;
 export * from "./harness-registry.js";
 export * from "./runtime-provider.js";
+export * from "./runtime-session-context.js";
