@@ -58,7 +58,7 @@ import {
   type RendererAdapterStatus,
 } from "./versioned-renderer-adapter.js";
 import type { RendererModelClient } from "./renderer-model-client.js";
-import { thinkingOptionsForModel } from "./renderer-model-picker.js";
+import { thinkingOptionsForModel } from "./renderer-agent-model-pane.js";
 import { RENDERER_AGENT_INSTALL_URLS } from "./renderer-agent-picker.js";
 import {
   getSharedAgentVisibilityStore,

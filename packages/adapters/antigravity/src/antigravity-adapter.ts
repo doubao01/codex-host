@@ -11,6 +11,8 @@ import {
   HarnessOutputChannel,
   sanitizeDiagnosticTail,
   type HarnessAdapter,
+  type HarnessCommandAccepted,
+  type HarnessCommandInvocation,
   type HarnessError,
   type HarnessInspection,
   type HarnessModelCatalog,
@@ -24,6 +26,7 @@ import {
   type HostAgentMessageItem,
   type HostCommand,
   type HostEvent,
+  type HostFileChange,
   type HostItem,
   type HostItemOutcome,
   type HostItemSnapshot,
@@ -63,6 +66,12 @@ import {
 } from "@codexhost/shared-contracts";
 
 import { resolveAntigravityExecutable } from "./command.js";
+import {
+  AntigravityCommandError,
+  antigravityCommandCatalog,
+  runAntigravityCommand,
+} from "./commands.js";
+import { projectAntigravityToolFileChanges } from "./file-changes.js";
 import { AntigravityHistory } from "./history.js";
 import {
   antigravityAvailableThinkingOptions,
@@ -102,6 +111,7 @@ interface ActiveTurn {
   agentText: string;
   tools: Map<number, HostToolExecutionItem>;
   completedItems: HostItemSnapshot[];
+  fileChanges: HostFileChange[];
   stderr: string;
   cancellationRequested: boolean;
   receivedResult: boolean;
@@ -384,6 +394,45 @@ async function runBuffered(
 class AntigravitySession implements HarnessSession {
   readonly harnessId: HarnessId = antigravityHarnessId;
   readonly capabilities = CAPABILITIES;
+  readonly commands = {
+    list: async () => ({ ok: true as const, value: antigravityCommandCatalog }),
+    execute: async (
+      command: HarnessCommandInvocation,
+    ): Promise<HarnessResult<HarnessCommandAccepted>> => {
+      try {
+        await runAntigravityCommand(async (arguments_) => {
+          const { stdout } = await runBuffered(
+            this.#executable,
+            [...arguments_],
+            this.#cwd,
+            this.#environment,
+            DEFAULT_INSPECT_TIMEOUT_MS,
+          );
+          return stdout;
+        }, command);
+        return { ok: true, value: { turnId: command.turnId } };
+      } catch (error) {
+        if (error instanceof AntigravityCommandError) {
+          return {
+            ok: false,
+            error: {
+              code: error.kind === "nativeFailure" ? "nativeFailure" : error.kind,
+              message: error.message,
+              retryable: error.kind === "nativeFailure",
+            } as HarnessError,
+          };
+        }
+        return {
+          ok: false,
+          error: {
+            code: "nativeFailure",
+            message: errorMessage(error),
+            retryable: true,
+          },
+        };
+      }
+    },
+  };
   readonly initialUsage: HostUsage | null = null;
   readonly outputs: AsyncIterable<HarnessOutput>;
   readonly #channel = new HarnessOutputChannel<HarnessOutput>();
@@ -499,6 +548,11 @@ class AntigravitySession implements HarnessSession {
       "stream-json",
       "--print-timeout",
       this.#printTimeout,
+      // The Thread's cwd must reach the CLI explicitly: agy resolves its own
+      // workspace from this flag, and historically fell back to its scratch
+      // directory when it had to infer one.
+      "--cwd",
+      this.#cwd,
     ];
     if (this.#nativeRef) arguments_.unshift("--conversation", this.#nativeRef.nativeSessionId);
     arguments_.push(...antigravityModelArguments(this.#model, this.#thinkingOptionId));
@@ -530,6 +584,7 @@ class AntigravitySession implements HarnessSession {
       agentText: "",
       tools: new Map(),
       completedItems: [],
+      fileChanges: [],
       stderr: "",
       cancellationRequested: false,
       receivedResult: false,
@@ -542,6 +597,10 @@ class AntigravitySession implements HarnessSession {
     child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
       active.stderr = (active.stderr + chunk).slice(-8_000);
     });
+    // The CLI may exit before a just-written turn payload is flushed (user
+    // cancellation, print-timeout). Consume the stream error so EPIPE fails the
+    // turn through the exit handler instead of crashing the process.
+    child.stdin.on("error", () => undefined);
     const lines = readline.createInterface({ input: child.stdout });
     lines.on("line", (line) => {
       const event = parseAntigravityStreamLine(line);
@@ -763,6 +822,14 @@ class AntigravitySession implements HarnessSession {
         : {}),
     };
     active.tools.delete(step.step_index);
+    if (step.state === "DONE" && !toolError) {
+      const changes = projectAntigravityToolFileChanges(
+        completed.toolName,
+        step.tool_info?.parameters,
+        this.#cwd,
+      );
+      if (changes) active.fileChanges.push(...changes);
+    }
     this.#completeItem(
       active,
       completed,
@@ -810,6 +877,13 @@ class AntigravitySession implements HarnessSession {
     if (active.agentItem) this.#completeItem(active, active.agentItem, itemOutcome);
     for (const item of active.tools.values()) this.#completeItem(active, item, itemOutcome);
     active.tools.clear();
+    if (active.fileChanges.length > 0 && outcome.status === "succeeded") {
+      this.#completeItem(
+        active,
+        { type: "fileChange", itemId: this.#newItemId(), changes: active.fileChanges },
+        { status: "succeeded" },
+      );
+    }
     if (nativeTurnRef) {
       this.#history.append({
         nativeTurnRef,

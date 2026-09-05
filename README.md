@@ -135,7 +135,7 @@ xattr -dr com.apple.quarantine /Applications/codexhost.app
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 流式回复 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 工具状态 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Edit Diff | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Edit Diff | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅* |
 | 提问 / 取消 | 原生 | ✅ | — / ✅ | ✅ | ✅ | ✅ | ✅ | — / ✅ |
 | Model / Thinking 选择 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 工具审批 | 原生 | ✅ | — | ✅ | ✅ | ✅ | ✅ | — |
@@ -144,10 +144,12 @@ xattr -dr com.apple.quarantine /Applications/codexhost.app
 | Usage | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Fork | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | 上下文压缩 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| 斜杠命令 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| 斜杠命令 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅* |
 | 修订上一条消息 | 原生 | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
 
-> **Antigravity 当前状态：**接入仍在完善中，工作目录目前固定为 `~/.gemini/antigravity-cli/scratch`。
+> **Antigravity 当前状态：**接入仍在完善中。Turn 已显式传递 `--cwd <thread-cwd>`，将 AGY 的 workspace 对齐到 Thread 工作目录；若 AGY 仍将写入限制在 scratch 目录，可在 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` 中按项目预放行（详见 `docs/antigravity-integration.md`）。
+>
+> \* AGY 的 Edit Diff 由 Adapter 从成功的 `write_file` / `edit_file` 工具参数（路径 + 前后内容）确定性生成，不读取改写后的文件，也不推断删除语义。斜杠命令通过 CLI 的 print 模式（`--print=/<command>`）执行，仅限 `/help`、`/config`、`/permissions`、`/hooks`、`/usage` 等由 CLI 自身应答的只读命令。
 
 ## 跨 Agent 协作
 

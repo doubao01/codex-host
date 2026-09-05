@@ -27,7 +27,7 @@ const { outputFiles } = await build({
         plus.setAttribute("aria-label", "Add files");
         plus.textContent = "+";
         const model = document.createElement("div");
-        model.setAttribute("data-codexhost-model-control", "usage-composer");
+        model.setAttribute("data-codexhost-agent-control", "usage-composer");
         const modelButton = document.createElement("button");
         modelButton.type = "button";
         modelButton.setAttribute("aria-label", "Model: gpt-test");
@@ -116,7 +116,7 @@ test("renders Usage immediately to the left of the model control", async ({ page
     setup();
   });
 
-  const model = page.locator('[data-codexhost-model-control="usage-composer"]');
+  const model = page.locator('[data-codexhost-agent-control="usage-composer"]');
   const usage = page.locator('[data-codexhost-usage-control="usage-composer"]');
   await expect(usage).toBeHidden();
   await page.evaluate(() => {
@@ -138,7 +138,7 @@ test("renders Usage immediately to the left of the model control", async ({ page
   ).toBeLessThanOrEqual(2);
   expect(usageBox.width).toBeLessThan(200);
   await expect(usage.locator("xpath=following-sibling::*[1]")).toHaveAttribute(
-    "data-codexhost-model-control",
+    "data-codexhost-agent-control",
     "usage-composer",
   );
   await expect(model).toHaveText("gpt-test");
@@ -196,7 +196,7 @@ test("keeps Usage in place and shows credits after the leading composer control"
     update();
   });
 
-  const model = page.locator('[data-codexhost-model-control="usage-composer"]');
+  const model = page.locator('[data-codexhost-agent-control="usage-composer"]');
   const usage = page.locator('[data-codexhost-usage-control="usage-composer"]');
   const credits = page.locator('[data-codexhost-credits-control="usage-composer"]');
   const trigger = usage.locator("button");
@@ -204,7 +204,7 @@ test("keeps Usage in place and shows credits after the leading composer control"
   await expect(credits).toBeHidden();
   await expect(trigger).toHaveCSS("max-width", "180px");
   await expect(usage.locator("xpath=following-sibling::*[1]")).toHaveAttribute(
-    "data-codexhost-model-control",
+    "data-codexhost-agent-control",
     "usage-composer",
   );
 
@@ -220,7 +220,7 @@ test("keeps Usage in place and shows credits after the leading composer control"
   await expect(credits.locator("[data-codexhost-credits-ring] svg")).toHaveCount(1);
   await expect(trigger).toHaveCSS("max-width", "180px");
   await expect(usage.locator("xpath=following-sibling::*[1]")).toHaveAttribute(
-    "data-codexhost-model-control",
+    "data-codexhost-agent-control",
     "usage-composer",
   );
   const [creditsBox, usageBox, modelBox] = await Promise.all([

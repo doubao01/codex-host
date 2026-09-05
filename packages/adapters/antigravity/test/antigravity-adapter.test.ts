@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -6,11 +6,15 @@ import {
   accountCreditsSnapshotSchema,
   harnessModelRefSchema,
   harnessThinkingOptionIdSchema,
+  hostTurnIdSchema,
 } from "@codexhost/shared-contracts";
-import { describe, expect, it } from "vitest";
+import type { HarnessOutput } from "@codexhost/harness-adapter";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AntigravityAdapter,
+  AntigravityCommandError,
+  antigravityCommandCatalog,
   antigravityAvailableThinkingOptions,
   antigravityModelArguments,
   antigravityToolErrorMessage,
@@ -21,6 +25,8 @@ import {
   parseAntigravityStreamLine,
   parseAntigravityUsageCommand,
   permissionDeniedTurnError,
+  projectAntigravityToolFileChanges,
+  runAntigravityCommand,
 } from "../src/index.js";
 
 const FETCHED_AT = "2026-08-31T14:40:00.000Z";
@@ -391,5 +397,253 @@ describe("Antigravity Adapter", () => {
     expect(error.diagnostic).toContain("[redacted]");
     expect(error.message).toContain("'request-review'");
     expect(error.retryable).toBe(false);
+  });
+
+  it("projects a completed write tool into an additive File Change", () => {
+    const changes = projectAntigravityToolFileChanges(
+      "write_file",
+      { path: "/repo/src/new.ts", content: "export const value = 1;\n" },
+      "/repo",
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes?.[0]?.kind).toBe("add");
+    expect(changes?.[0]?.path).toBe("src/new.ts");
+    expect(changes?.[0]?.unifiedDiff).toContain("+export const value = 1;");
+  });
+
+  it("projects an edit tool into an updating File Change with before text", () => {
+    const changes = projectAntigravityToolFileChanges(
+      "edit_file",
+      {
+        path: "/repo/src/main.ts",
+        old_string: "const a = 1;",
+        new_string: "const a = 2;",
+      },
+      "/repo",
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes?.[0]?.kind).toBe("update");
+    expect(changes?.[0]?.unifiedDiff).toContain("-const a = 1;");
+    expect(changes?.[0]?.unifiedDiff).toContain("+const a = 2;");
+  });
+
+  it("rejects tools and parameters that cannot prove a file change", () => {
+    // Unknown tool names never project.
+    expect(
+      projectAntigravityToolFileChanges("run_command", { command: "rm -rf /" }, "/repo"),
+    ).toBeNull();
+    // Known tool, but relative path: the Adapter cannot pin the target.
+    expect(
+      projectAntigravityToolFileChanges(
+        "write_file",
+        { path: "src/new.ts", content: "x" },
+        "/repo",
+      ),
+    ).toBeNull();
+    // Known tool, but no content parameter.
+    expect(
+      projectAntigravityToolFileChanges("write_file", { path: "/repo/src/new.ts" }, "/repo"),
+    ).toBeNull();
+    // No-op write: old and new content match.
+    expect(
+      projectAntigravityToolFileChanges(
+        "edit_file",
+        { path: "/repo/src/main.ts", old_string: "same", new_string: "same" },
+        "/repo",
+      ),
+    ).toBeNull();
+  });
+
+  it(
+    "projects a completed write tool into a live File Change item",
+    { timeout: 40_000 },
+    async () => {
+      const turnLines = [
+        JSON.stringify({ event: "init", conversation_id: "conv-file-change", init: {} }),
+        JSON.stringify({
+          event: "step_update",
+          step_update: {
+            conversation_id: "conv-file-change",
+            step_index: 0,
+            state: "DONE",
+            step_type: "tool",
+            tool_name: "write_file",
+            tool_info: {
+              name: "write_file",
+              parameters: { path: "/repo/src/new.ts", content: "export const value = 1;\n" },
+            },
+          },
+        }),
+        JSON.stringify({
+          event: "result",
+          result: { conversation_id: "conv-file-change", status: "SUCCESS", num_turns: 1 },
+        }),
+      ];
+      // The shim answers `models` with the catalog, then echoes the Turn stream
+      // the real CLI prints for one conversation turn.
+      const { command, cwd, cleanup } = await fakeAgy([...FAKE_MODELS, ...turnLines]);
+      const adapter = new AntigravityAdapter({ command });
+      try {
+        const opened = await adapter.open({ kind: "create", cwd });
+        expect(opened.ok).toBe(true);
+        if (!opened.ok) return;
+        const session = opened.value;
+        const outputs: HarnessOutput[] = [];
+        const collect = (async () => {
+          for await (const output of session.outputs) outputs.push(output);
+        })();
+        const accepted = await session.execute({
+          type: "turn.start",
+          turnId: hostTurnIdSchema.parse("turn-file-change"),
+          input: [{ type: "text", text: "create a file" }],
+        });
+        expect(accepted.ok).toBe(true);
+        await vi.waitFor(() => {
+          const events = (
+            outputs.filter(({ kind }) => kind === "event") as Extract<
+              HarnessOutput,
+              { kind: "event" }
+            >[]
+          ).map(({ event }) => event);
+          const change = events.find(
+            (event) =>
+              event.type === "item.completed" &&
+              (event as { snapshot?: { item?: { type?: string } } }).snapshot?.item?.type ===
+                "fileChange",
+          );
+          expect(change).toBeDefined();
+        }, 20_000);
+        await session.close();
+        await collect;
+        await adapter.close();
+      } finally {
+        await cleanup();
+      }
+    },
+  );
+
+  it("passes the Thread cwd as the CLI --cwd flag on every Turn", async () => {
+    // A shim that records its argv to a file, then answers `models` with the
+    // catalog and every later invocation with a minimal successful Turn.
+    const directory = await mkdtemp(path.join(os.tmpdir(), "codexhost-agy-argv-"));
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "codexhost-agy-cwd-"));
+    const argvFile = path.join(directory, "argv.log");
+    const cleanup = async (): Promise<void> => {
+      for (const target of [directory, cwd]) {
+        await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
+    };
+    const turnLines = [
+      JSON.stringify({ event: "init", conversation_id: "conv-cwd", init: {} }),
+      JSON.stringify({
+        event: "result",
+        result: { conversation_id: "conv-cwd", status: "SUCCESS", num_turns: 1 },
+      }),
+    ];
+    const body = [
+      `printf '%s\\n' "$*" >> ${JSON.stringify(argvFile)}`,
+      `if [ "$1" = "models" ]; then`,
+      `  cat <<'MODELS'`,
+      ...FAKE_MODELS,
+      `MODELS`,
+      `  exit 0`,
+      `fi`,
+      `cat <<'STREAM'`,
+      ...turnLines,
+      `STREAM`,
+    ].join("\n");
+    if (process.platform === "win32") {
+      // cmd.exe cannot easily append argv, so this assertion runs on POSIX;
+      // the flag wiring itself is platform-independent string assembly.
+      await rm(directory, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      return;
+    }
+    const command = path.join(directory, "agy");
+    await writeFile(command, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    const adapter = new AntigravityAdapter({ command });
+    try {
+      const opened = await adapter.open({ kind: "create", cwd });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      const session = opened.value;
+      void (async () => {
+        for await (const output of session.outputs) {
+          if (output.kind === "event" && output.event.type === "turn.completed") break;
+        }
+      })();
+      await session.execute({
+        type: "turn.start",
+        turnId: hostTurnIdSchema.parse("turn-cwd"),
+        input: [{ type: "text", text: "hi" }],
+      });
+      await vi.waitFor(
+        async () => {
+          const argvLog = await readFile(argvFile, "utf8").catch(() => "");
+          const turnCall = argvLog.split("\n").find((line) => line.includes("--input-format"));
+          expect(turnCall).toBeDefined();
+          expect(turnCall).toContain(`--cwd ${cwd}`);
+        },
+        { timeout: 20_000 },
+      );
+      await session.close();
+      await adapter.close();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("exposes a read-only print-mode command catalog", () => {
+    const invocations = antigravityCommandCatalog.commands.map(({ invocation }) => invocation);
+    expect(invocations).toEqual(["/help", "/config", "/permissions", "/hooks", "/usage"]);
+    expect(
+      antigravityCommandCatalog.commands.every(({ argumentMode }) => argumentMode === "none"),
+    ).toBe(true);
+  });
+
+  it("runs a print-mode command and returns the CLI answer", async () => {
+    const stdout = [
+      JSON.stringify({
+        event: "command_result",
+        command: { name: "config", output: "model=gemini" },
+      }),
+      JSON.stringify({
+        event: "result",
+        result: { conversation_id: "", status: "SUCCESS", num_turns: 0 },
+      }),
+    ].join("\n");
+    const calls: string[][] = [];
+    const answer = await runAntigravityCommand(
+      (arguments_) => {
+        calls.push([...arguments_]);
+        return Promise.resolve(stdout);
+      },
+      { turnId: hostTurnIdSchema.parse("turn-cmd"), commandId: "antigravity.config" },
+    );
+    expect(answer).toBe("model=gemini");
+    expect(calls).toEqual([["--print=/config", "--output-format", "stream-json"]]);
+  });
+
+  it("rejects unknown commands and rejected arguments without invoking the CLI", async () => {
+    const run = (): Promise<string> => Promise.resolve("");
+    await expect(
+      runAntigravityCommand(run, { turnId: hostTurnIdSchema.parse("t"), commandId: "antigravity.nope" }),
+    ).rejects.toMatchObject({ kind: "unsupported" });
+    await expect(
+      runAntigravityCommand(run, {
+        turnId: hostTurnIdSchema.parse("t"),
+        commandId: "antigravity.help",
+        arguments: { text: "hi" },
+      }),
+    ).rejects.toMatchObject({ kind: "invalidRequest" });
+  });
+
+  it("reports a CLI failure as a retryable nativeFailure", async () => {
+    const error = await runAntigravityCommand(
+      () => Promise.reject(new Error("agy exited with code 1")),
+      { turnId: hostTurnIdSchema.parse("t"), commandId: "antigravity.usage" },
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AntigravityCommandError);
+    expect((error as AntigravityCommandError).kind).toBe("nativeFailure");
   });
 });

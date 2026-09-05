@@ -1,10 +1,104 @@
 import { describe, expect, it } from "vitest";
 
 import { isNativeModelControlCandidate } from "../src/renderer-composer-dom.js";
+import { agentModelPaneState } from "../src/renderer-composer-dom.js";
+import { agentModelPanePresentation } from "../src/renderer-agent-model-pane.js";
 import {
   rendererAgentMenuPlacement,
   rendererAgentPickerView,
 } from "../src/renderer-agent-picker.js";
+import {
+  harnessModelRefSchema,
+  harnessThinkingOptionIdSchema,
+  type HarnessModelCatalog,
+} from "@codexhost/shared-contracts";
+
+describe("Agent picker Model pane presentation", () => {
+  const catalog: HarnessModelCatalog = {
+    models: [
+      { ref: harnessModelRefSchema.parse({ id: "gpt-5.2" }), label: "gpt-5.2" },
+      {
+        ref: harnessModelRefSchema.parse({ id: "gemini-3-pro" }),
+        label: "gemini-3-pro",
+        supportedThinkingOptionIds: [
+          harnessThinkingOptionIdSchema.parse("high"),
+          harnessThinkingOptionIdSchema.parse("low"),
+        ],
+      },
+    ],
+    thinkingOptions: [
+      { id: harnessThinkingOptionIdSchema.parse("high"), label: "High" },
+      { id: harnessThinkingOptionIdSchema.parse("low"), label: "Low" },
+    ],
+  } as unknown as HarnessModelCatalog;
+  const selected = harnessModelRefSchema.parse({ id: "gemini-3-pro" });
+
+  it("keeps the pane hidden while the catalog loads", () => {
+    const presentation = agentModelPanePresentation({ busy: true });
+    expect(presentation.modelLabel).toBe("Loading...");
+    expect(presentation.rows).toEqual([]);
+  });
+
+  it("lists Models and strength segments for a ready catalog", () => {
+    const presentation = agentModelPanePresentation({
+      catalog,
+      selected,
+      selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("low"),
+      busy: false,
+    });
+    expect(presentation.modelLabel).toBe("gemini-3-pro");
+    expect(presentation.rows).toEqual([
+      { id: "gpt-5.2", label: "gpt-5.2", selected: false, disabled: false },
+      { id: "gemini-3-pro", label: "gemini-3-pro", selected: true, disabled: false },
+    ]);
+    // The catalog default is "high", so the pane leads with the 默认 reset
+    // segment, then the native options in catalog order.
+    expect(presentation.strengths).toEqual([
+      { label: "默认", selected: false, resetsToDefault: true },
+      { id: "high", label: "高", selected: false },
+      { id: "low", label: "低", selected: true },
+    ]);
+  });
+
+  it("marks the 默认 segment selected when no explicit tier is pinned", () => {
+    const presentation = agentModelPanePresentation({
+      catalog,
+      selected,
+      selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("high"),
+      busy: false,
+    });
+    expect(presentation.strengths[0]).toEqual({
+      label: "默认",
+      selected: true,
+      resetsToDefault: true,
+    });
+    expect(presentation.thinkingLabel).toBeUndefined();
+  });
+
+  it("hides strength segments when Thinking selection is unsupported", () => {
+    const presentation = agentModelPanePresentation({
+      catalog,
+      selected,
+      busy: false,
+      thinkingSupported: false,
+    });
+    expect(presentation.rows).toHaveLength(2);
+    expect(presentation.strengths).toEqual([]);
+  });
+
+  it("derives the pill Model segment from the composer Model view", () => {
+    const state = agentModelPaneState({
+      status: "ready",
+      catalog,
+      selected,
+      selectedThinkingOptionId: harnessThinkingOptionIdSchema.parse("high"),
+    });
+    expect(agentModelPanePresentation(state).modelLabel).toBe("gemini-3-pro");
+    expect(
+      agentModelPanePresentation({ busy: false, unavailableReason: "offline" }).note,
+    ).toBe("offline");
+  });
+});
 
 describe("Renderer Agent picker presentation", () => {
   it("normalizes viewport coordinates against the Codex window zoom", () => {

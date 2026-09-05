@@ -8,6 +8,8 @@ import type {
   RendererAgent,
   RendererAgentAvailability,
 } from "./agent-selection-state.js";
+import type { AgentModelPaneState } from "./renderer-agent-model-pane.js";
+import { agentModelPanePresentation } from "./renderer-agent-model-pane.js";
 import { createRendererAgentIcon, RENDERER_AGENT_LABELS } from "./renderer-agent-icon.js";
 import { requestConnectionsPageFocus } from "./settings/connections-page.js";
 import {
@@ -58,6 +60,12 @@ type AgentAvailability = Partial<Record<ExternalRendererAgent, RendererAgentAvai
 
 export const CONTROL_ATTRIBUTE = "data-codexhost-agent-control";
 const AGENT_MENU_WIDTH = 200;
+// Model pane of the combined picker. Keeps the two-pane menu compact while
+// leaving room for long Model labels on one line.
+const AGENT_MENU_MODEL_PANE_WIDTH = 240;
+// Pill trigger segments share a divider; the Model segment is compact so the
+// pill stays one visual unit inside the composer's footer cluster.
+const PILL_MODEL_LABEL_MAX_WIDTH = "140px";
 // Below this many enabled Agents, the picker stays a flat list — grouping
 // only earns its keep once there are enough Harnesses to make scanning slow.
 const AGENT_GROUP_CTA_THRESHOLD = 5;
@@ -79,9 +87,21 @@ export interface RendererAgentPickerControl {
   trigger: HTMLButtonElement;
   iconSlot: HTMLElement;
   spinner: HTMLElement;
+  /** Pill's Model segment label ("gpt-5.2 · 高"). Empty string hides it. */
+  modelLabel: HTMLElement;
   menu: HTMLElement;
+  /** Two-pane Model column; empty when no catalog has been provided. */
+  modelPane: HTMLElement;
   agents: readonly RendererAgent[];
   options: Partial<Record<RendererAgent, AgentOptionControl>>;
+  /** Supplies the Model pane/pill with the current Agent's catalog view. */
+  setModelPane(state: AgentModelPaneState): void;
+  /** Invoked when the user picks a Model row for the current Agent. */
+  onSelectModel: (modelId: string) => void;
+  /** Invoked when the user picks a Thinking option for the selected Model. */
+  onSelectThinking: (thinkingOptionId: string) => void;
+  /** Invoked when the user picks the "默认" segment to follow the Harness default. */
+  onSelectDefaultThinking: () => void;
   close(): void;
   dispose(): void;
 }
@@ -100,13 +120,14 @@ export function rendererAgentMenuPlacement(
   triggerRect: Pick<DOMRectReadOnly, "right" | "top">,
   viewport: { width: number; height: number },
   windowZoom: number,
+  menuWidth: number = AGENT_MENU_WIDTH,
 ): { left: number; bottom: number } {
   const zoom = Number.isFinite(windowZoom) && windowZoom > 0 ? windowZoom : 1;
   const viewportWidth = viewport.width / zoom;
   const viewportHeight = viewport.height / zoom;
   const left = Math.max(
     8,
-    Math.min(triggerRect.right / zoom - AGENT_MENU_WIDTH, viewportWidth - AGENT_MENU_WIDTH - 8),
+    Math.min(triggerRect.right / zoom - menuWidth, viewportWidth - menuWidth - 8),
   );
   return {
     left,
@@ -149,6 +170,12 @@ export function rendererAgentPickerView(
   };
 }
 
+function effectiveMenuWidth(control: RendererAgentPickerControl): number {
+  return control.modelPane.hidden
+    ? AGENT_MENU_WIDTH
+    : AGENT_MENU_WIDTH + AGENT_MENU_MODEL_PANE_WIDTH;
+}
+
 function setMenuPosition(control: RendererAgentPickerControl): void {
   const rect = control.trigger.getBoundingClientRect();
   const rawWindowZoom = getComputedStyle(document.documentElement)
@@ -158,6 +185,7 @@ function setMenuPosition(control: RendererAgentPickerControl): void {
     rect,
     { width: window.innerWidth, height: window.innerHeight },
     Number.parseFloat(rawWindowZoom),
+    effectiveMenuWidth(control),
   );
   control.menu.style.left = `${placement.left}px`;
   control.menu.style.bottom = `${placement.bottom}px`;
@@ -177,6 +205,9 @@ export function mountRendererAgentPicker(
   onSelect: (agent: RendererAgent) => void,
   onDownload: (agent: ExternalRendererAgent) => void,
   groupPreference: AgentGroupPreferenceStore = getSharedAgentGroupPreferenceStore(),
+  onSelectModel: (modelId: string) => void = () => undefined,
+  onSelectThinking: (thinkingOptionId: string) => void = () => undefined,
+  onSelectDefaultThinking: () => void = () => undefined,
 ): RendererAgentPickerControl {
   const root = document.createElement("div");
   root.setAttribute(CONTROL_ATTRIBUTE, composerId);
@@ -184,10 +215,10 @@ export function mountRendererAgentPicker(
   root.style.alignItems = "center";
   root.style.alignSelf = "center";
   root.style.verticalAlign = "middle";
-  root.style.width = "30px";
   root.style.height = "28px";
   root.style.marginInline = "4px";
   root.style.color = "inherit";
+  root.style.minWidth = "0";
 
   const trigger = document.createElement("button");
   trigger.type = "button";
@@ -197,11 +228,13 @@ export function mountRendererAgentPicker(
   trigger.style.display = "inline-flex";
   trigger.style.alignItems = "center";
   trigger.style.justifyContent = "center";
-  trigger.style.width = "30px";
+  trigger.style.gap = "6px";
+  trigger.style.width = "fit-content";
+  trigger.style.maxWidth = "min(260px, 30vw)";
   trigger.style.height = "28px";
-  trigger.style.padding = "0";
+  trigger.style.padding = "0 10px 0 6px";
   trigger.style.border = "0";
-  trigger.style.borderRadius = "6px";
+  trigger.style.borderRadius = "999px";
   trigger.style.background = "rgba(127, 127, 127, 0.08)";
   trigger.style.color = "inherit";
   trigger.style.cursor = "pointer";
@@ -231,7 +264,77 @@ export function mountRendererAgentPicker(
     duration: 800,
     iterations: Infinity,
   });
-  trigger.append(iconSlot, spinner);
+
+  // Pill Model segment: "gpt-5.2 · 高" after a divider. Hidden while the
+  // Agent's catalog is unavailable so the pill degrades to icon-only.
+  const pillDivider = document.createElement("span");
+  pillDivider.setAttribute("aria-hidden", "true");
+  pillDivider.style.width = "1px";
+  pillDivider.style.height = "14px";
+  pillDivider.style.background = "rgba(127, 127, 127, 0.28)";
+  pillDivider.style.flex = "none";
+  pillDivider.hidden = true;
+  const modelLabel = document.createElement("span");
+  modelLabel.style.color = "inherit";
+  modelLabel.style.fontSize = "12px";
+  modelLabel.style.maxWidth = PILL_MODEL_LABEL_MAX_WIDTH;
+  modelLabel.style.overflow = "hidden";
+  modelLabel.style.textOverflow = "ellipsis";
+  modelLabel.style.whiteSpace = "nowrap";
+  modelLabel.hidden = true;
+  trigger.append(iconSlot, spinner, pillDivider, modelLabel);
+
+  // Chevron marks the pill as a menu trigger once it carries the Model label.
+  const chevron = document.createElement("span");
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.textContent = "▾";
+  chevron.style.fontSize = "9px";
+  chevron.style.opacity = "0.6";
+  chevron.style.flex = "none";
+  chevron.hidden = true;
+  trigger.append(chevron);
+
+  // Model pane: the menu's second column. It shows the current Agent's Model
+  // rows and strength segments once its catalog is ready, so Model and Thinking
+  // are chosen without leaving the unified pill — a one-level menu that mirrors
+  // the official composer's Agent/Model dropdowns instead of stacking another
+  // trigger next to it.
+  const modelPane = document.createElement("div");
+  modelPane.setAttribute("role", "group");
+  modelPane.setAttribute("aria-label", "Model");
+  modelPane.hidden = true;
+  modelPane.style.display = "none";
+  modelPane.style.flexDirection = "column";
+  modelPane.style.width = `${AGENT_MENU_MODEL_PANE_WIDTH - 8}px`;
+  modelPane.style.flex = "none";
+  modelPane.style.minWidth = "0";
+  modelPane.style.borderLeft = "1px solid rgba(127, 127, 127, 0.16)";
+  modelPane.style.paddingLeft = "4px";
+  const modelPaneHeader = document.createElement("div");
+  modelPaneHeader.textContent = "Model";
+  modelPaneHeader.style.font = "500 11px/1 system-ui, sans-serif";
+  modelPaneHeader.style.opacity = "0.6";
+  modelPaneHeader.style.padding = "4px 8px 2px";
+  const modelPaneNote = document.createElement("div");
+  modelPaneNote.style.font = "400 11px/1.4 system-ui, sans-serif";
+  modelPaneNote.style.opacity = "0.6";
+  modelPaneNote.style.padding = "4px 8px";
+  modelPaneNote.hidden = true;
+  const modelPaneRows = document.createElement("div");
+  modelPaneRows.style.display = "flex";
+  modelPaneRows.style.flexDirection = "column";
+  modelPaneRows.style.gap = "2px";
+  modelPaneRows.style.overflowY = "auto";
+  modelPaneRows.style.maxHeight = "240px";
+  const modelPaneStrengths = document.createElement("div");
+  modelPaneStrengths.setAttribute("role", "group");
+  modelPaneStrengths.setAttribute("aria-label", "Thinking");
+  modelPaneStrengths.hidden = true;
+  modelPaneStrengths.style.display = "flex";
+  modelPaneStrengths.style.flexWrap = "wrap";
+  modelPaneStrengths.style.gap = "4px";
+  modelPaneStrengths.style.padding = "4px 8px 6px";
+  modelPane.append(modelPaneHeader, modelPaneNote, modelPaneRows, modelPaneStrengths);
 
   const menu = document.createElement("div");
   menu.id = `${composerId}-agent-menu`;
@@ -253,6 +356,120 @@ export function mountRendererAgentPicker(
   menu.style.overflowY = "auto";
   menu.style.zIndex = "2147483647";
   trigger.setAttribute("aria-controls", menu.id);
+
+  const modelRows = new Map<string, HTMLButtonElement>();
+  const onSelectModelHandler: (modelId: string) => void = onSelectModel;
+  const onSelectThinkingHandler: (thinkingOptionId: string) => void = onSelectThinking;
+  const onSelectDefaultThinkingHandler: () => void = onSelectDefaultThinking;
+  /** Latest Model pane view; set by `setModelPane`, rendered on pane refresh. */
+  let modelPaneState: AgentModelPaneState | undefined;
+
+  /** Builds one Model row; listeners close over the row itself, never null. */
+  const createModelRow = (entry: { id: string; selected: boolean }): HTMLButtonElement => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.setAttribute("role", "menuitemradio");
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "8px";
+    row.style.width = "100%";
+    row.style.height = "32px";
+    row.style.padding = "0 8px";
+    row.style.border = "0";
+    row.style.borderRadius = "4px";
+    row.style.background = "transparent";
+    row.style.color = "inherit";
+    row.style.font = "400 13px/1 system-ui, sans-serif";
+    row.style.textAlign = "left";
+    row.style.cursor = "pointer";
+    row.addEventListener("pointerenter", () => {
+      if (!row.disabled) row.style.background = "rgba(127, 127, 127, 0.1)";
+    });
+    row.addEventListener("pointerleave", () => {
+      row.style.background =
+        row.getAttribute("aria-checked") === "true" ? "rgba(127, 127, 127, 0.16)" : "transparent";
+    });
+    row.addEventListener("click", () => {
+      onSelectModelHandler(entry.id);
+    });
+    return row;
+  };
+
+  const renderModelPane = (): void => {
+    const presentation = agentModelPanePresentation(modelPaneState);
+    const open = modelPaneState !== undefined && presentation.rows.length > 0;
+    modelPane.hidden = !open;
+    modelPane.style.display = open ? "flex" : "none";
+    if (!open) {
+      if (popoverOpen(menu)) setMenuPosition(control);
+      return;
+    }
+    modelPaneNote.textContent = presentation.note ?? "";
+    modelPaneNote.hidden = presentation.note === undefined;
+    for (const modelId of modelRows.keys()) {
+      if (!presentation.rows.some((entry) => entry.id === modelId)) modelRows.delete(modelId);
+    }
+    for (const entry of presentation.rows) {
+      const existing = modelRows.get(entry.id);
+      const row = existing ?? createModelRow(entry);
+      if (!existing) modelRows.set(entry.id, row);
+      const rowLabel = document.createElement("span");
+      rowLabel.textContent = entry.label;
+      rowLabel.style.minWidth = "0";
+      rowLabel.style.flex = "1 1 auto";
+      rowLabel.style.overflow = "hidden";
+      rowLabel.style.textOverflow = "ellipsis";
+      rowLabel.style.whiteSpace = "nowrap";
+      const check = document.createElement("span");
+      check.textContent = "\u2713";
+      check.setAttribute("aria-hidden", "true");
+      check.style.width = "16px";
+      check.style.flex = "none";
+      check.style.textAlign = "center";
+      check.style.visibility = entry.selected ? "visible" : "hidden";
+      row.replaceChildren(check, rowLabel);
+      row.disabled = entry.disabled;
+      row.style.opacity = entry.disabled ? "0.5" : "1";
+      row.setAttribute("aria-checked", String(entry.selected));
+      row.style.background = entry.selected ? "rgba(127, 127, 127, 0.16)" : "transparent";
+    }
+    modelPaneRows.replaceChildren(...[...modelRows.values()]);
+    syncStrengthSegments();
+    if (popoverOpen(menu)) setMenuPosition(control);
+  };
+
+  /** Strength segments for the selected Model; rebuilt when the pane renders. */
+  const syncStrengthSegments = (): void => {
+    const presentation = agentModelPanePresentation(modelPaneState);
+    modelPaneStrengths.replaceChildren();
+    if (presentation.strengths.length === 0) {
+      modelPaneStrengths.hidden = true;
+      return;
+    }
+    for (const segment of presentation.strengths) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = segment.label;
+      button.setAttribute("aria-pressed", String(segment.selected));
+      button.style.display = "inline-flex";
+      button.style.alignItems = "center";
+      button.style.height = "22px";
+      button.style.padding = "0 8px";
+      button.style.border = "1px solid rgba(127, 127, 127, 0.28)";
+      button.style.borderRadius = "999px";
+      button.style.background = segment.selected ? "rgba(127, 127, 127, 0.16)" : "transparent";
+      button.style.color = "inherit";
+      button.style.font = "500 11px/1 system-ui, sans-serif";
+      button.style.cursor = "pointer";
+      button.addEventListener("click", () => {
+        if (segment.selected || segment.id === undefined) return;
+        if (segment.resetsToDefault) onSelectDefaultThinkingHandler();
+        else onSelectThinkingHandler(segment.id);
+      });
+      modelPaneStrengths.append(button);
+    }
+    modelPaneStrengths.hidden = false;
+  };
 
   const options: Partial<Record<RendererAgent, AgentOptionControl>> = {};
   const rowsByAgent = new Map<RendererAgent, HTMLDivElement>();
@@ -402,6 +619,19 @@ export function mountRendererAgentPicker(
   // they never switch to into "More" from the Connections settings page.
   // Codex always stays pinned to Main — it is the always-on default and is
   // not offered in Connections' grouping list.
+  // The menu body is a horizontal flex row: the Agent list keeps its original
+  // width and the Model pane sits to its right when present, so the popover
+  // widens instead of restacking. The popover element itself keeps the UA's
+  // popover display rules.
+  const menuBody = document.createElement("div");
+  menuBody.style.display = "flex";
+  menuBody.style.alignItems = "flex-start";
+  menuBody.style.gap = "0";
+  const mainColumn = document.createElement("div");
+  mainColumn.style.display = "flex";
+  mainColumn.style.flexDirection = "column";
+  mainColumn.style.width = `${AGENT_MENU_WIDTH - 8}px`;
+  mainColumn.style.flex = "none";
   const mainGroup = document.createElement("div");
   mainGroup.style.display = "flex";
   mainGroup.style.flexDirection = "column";
@@ -551,7 +781,8 @@ export function mountRendererAgentPicker(
   regroup();
   const unsubscribeGroup = groupPreference.subscribe(regroup);
 
-  menu.append(mainGroup, moreToggle, morePanel, cta);
+  menuBody.append(modelPane, mainColumn);
+  menu.append(menuBody);
   root.append(trigger, menu);
 
   const onTriggerClick = (): void => {
@@ -608,9 +839,18 @@ export function mountRendererAgentPicker(
     trigger,
     iconSlot,
     spinner,
+    modelLabel,
     menu,
+    modelPane,
     agents: [...enabledAgents],
     options,
+    onSelectModel: (modelId) => onSelectModelHandler(modelId),
+    onSelectThinking: (thinkingOptionId) => onSelectThinkingHandler(thinkingOptionId),
+    onSelectDefaultThinking: () => onSelectDefaultThinkingHandler(),
+    setModelPane(state) {
+      modelPaneState = state;
+      renderModelPane();
+    },
     close,
     dispose() {
       close();
@@ -633,6 +873,7 @@ export function renderRendererAgentPicker(
   adapterState: RendererAdapterStatus["state"],
   switching: boolean,
   availability: AgentAvailability = {},
+  modelPane?: AgentModelPaneState,
 ): RendererAgentPickerView {
   const view = rendererAgentPickerView(
     state,
@@ -658,6 +899,26 @@ export function renderRendererAgentPicker(
   control.iconSlot.style.display = switching ? "none" : "inline-flex";
   control.spinner.style.display = switching ? "block" : "none";
   if (view.triggerDisabled) control.close();
+
+  // Pill Model segment: shown once the current Agent's catalog view exists,
+  // regardless of whether the picker is open — the pane is only one half of
+  // the same view. Codex keeps its native Model control, so the segment stays
+  // hidden there. The chevron appears with it to mark the pill as a trigger.
+  if (modelPane) control.setModelPane(modelPane);
+  const panePresentation = agentModelPanePresentation(modelPane);
+  const pillModelLabel = state.agent === "codex" ? "" : panePresentation.modelLabel;
+  const pillSecondary = state.agent === "codex" ? undefined : panePresentation.thinkingLabel;
+  const pillText = [pillModelLabel, pillSecondary].filter(Boolean).join(" · ");
+  control.modelLabel.textContent = pillText;
+  control.modelLabel.hidden = pillText === "";
+  const pillDivider = control.modelLabel.previousElementSibling;
+  if (pillDivider instanceof HTMLElement) pillDivider.hidden = pillText === "";
+  const pillChevron = control.modelLabel.nextElementSibling;
+  if (pillChevron instanceof HTMLElement) pillChevron.hidden = pillText === "";
+  control.trigger.setAttribute(
+    "aria-label",
+    `Agent: ${view.label}${pillText ? `, Model: ${pillText}` : ""}`,
+  );
 
   for (const agent of control.agents) {
     const option = control.options[agent];

@@ -15,14 +15,9 @@ import {
   renderRendererAgentPicker,
   type RendererAgentPickerControl,
 } from "./renderer-agent-picker.js";
-import {
-  mountRendererModelPicker,
-  renderRendererModelPicker,
-  syncRendererModelTriggerClass,
-  thinkingOptionsForModel,
-  type RendererModelControlView,
-  type RendererModelPickerControl,
-} from "./renderer-model-picker.js";
+import type { AgentModelPaneState } from "./renderer-agent-model-pane.js";
+import { thinkingOptionsForModel } from "./renderer-agent-model-pane.js";
+import type { RendererModelControlView } from "./renderer-model-picker.js";
 import {
   isPermissionModeControlReady,
   mountRendererPermissionModePicker,
@@ -50,6 +45,28 @@ import {
 
 export { CONTROL_ATTRIBUTE };
 export type ExternalModelControlView = RendererModelControlView;
+/**
+ * Translates the Model control's view into the unified Agent picker's Model
+ * pane state. Only a ready catalog produces pane rows; every other state keeps
+ * the pane hidden so the picker degrades to the Agent list plus the pill
+ * label's loading/empty text.
+ */
+export function agentModelPaneState(view: ExternalModelControlView): AgentModelPaneState {
+  const busy = view.status === "loading" || view.status === "selecting";
+  return {
+    ...(view.catalog ? { catalog: view.catalog } : {}),
+    ...(view.selected ? { selected: view.selected } : {}),
+    ...(view.selectedThinkingOptionId
+      ? { selectedThinkingOptionId: view.selectedThinkingOptionId }
+      : {}),
+    ...(view.thinkingSelectionSupported !== undefined
+      ? { thinkingSupported: view.thinkingSelectionSupported }
+      : {}),
+    busy,
+    ...(view.error ? { unavailableReason: view.error } : {}),
+    ...(view.linkageHint ? { note: view.linkageHint } : {}),
+  };
+}
 export type ExternalPermissionModeControlView = RendererPermissionModeControlView;
 export type PiModelControlView = ExternalModelControlView;
 export const CODEX_COMPOSER_SELECTOR = "[data-codex-composer-root]";
@@ -82,7 +99,6 @@ export interface ComposerAgentControl {
   composer: Element;
   root: HTMLElement;
   picker: RendererAgentPickerControl;
-  modelPicker: RendererModelPickerControl;
   permissionModePicker: RendererPermissionModePickerControl;
   nativeModelControl: NativeModelControlState | null;
   nativePermissionModeControl: NativePermissionModeControlState | null;
@@ -451,7 +467,6 @@ function refreshNativeModelControl(control: ComposerAgentControl): void {
   if (candidate !== control.nativeModelControl?.element) {
     restoreNativeControl(control.nativeModelControl);
     control.nativeModelControl = captureNativeControl(candidate);
-    syncRendererModelTriggerClass(control.modelPicker);
   }
 }
 
@@ -464,11 +479,11 @@ function usagePlacementAnchor(control: ComposerAgentControl): HTMLElement | null
   const contextWrapper = context?.parentElement;
   if (contextWrapper?.parentElement) return contextWrapper;
   // External Harnesses can publish reliable cache, token, or cost Usage before
-  // the native Context control exists. The renderer-owned Model control is a
-  // stable footer anchor, so early Usage remains visible instead of waiting for
-  // a later Context observation to create the native indicator.
-  const modelRoot = control.modelPicker?.root;
-  return modelRoot?.parentElement ? modelRoot : null;
+  // the native Context control exists. The unified Agent pill is a stable
+  // footer anchor, so early Usage remains visible instead of waiting for a
+  // later Context observation to create the native indicator.
+  const agentRoot = control.root ?? control.picker?.root;
+  return agentRoot?.parentElement ? agentRoot : null;
 }
 
 /**
@@ -483,21 +498,17 @@ export function creditsPlacementAnchor(control: ComposerAgentControl): HTMLEleme
 
 function refreshTrailingClusterPlacement(control: ComposerAgentControl): void {
   const sendButton = control.sendButton;
-  const modelRoot = control.modelPicker?.root;
   const agentRoot = control.root ?? control.picker?.root;
-  if (!sendButton || !modelRoot || !agentRoot) return;
+  if (!sendButton || !agentRoot) return;
   const anchor = trailingActionAnchor(sendButton);
   const parent = anchor.parentElement;
   if (!parent || typeof parent.insertBefore !== "function") return;
   if (
-    modelRoot.parentElement === parent &&
     agentRoot.parentElement === parent &&
-    modelRoot.nextElementSibling === agentRoot &&
     agentRoot.nextElementSibling === anchor
   ) {
     return;
   }
-  parent.insertBefore(modelRoot, anchor);
   parent.insertBefore(agentRoot, anchor);
 }
 
@@ -619,9 +630,12 @@ export function mountComposerAgentControl(
   const nativePermissionModeControlVerified =
     semanticNativePermissionModeControl !== null &&
     nativePermissionModeControlForComposer(composer) === semanticNativePermissionModeControl;
-  const picker = mountRendererAgentPicker(composerId, enabledAgents, onSelect, onDownload);
-  const modelPicker = mountRendererModelPicker(
+  const picker = mountRendererAgentPicker(
     composerId,
+    enabledAgents,
+    onSelect,
+    onDownload,
+    undefined,
     onSelectModel,
     onSelectThinking,
     onSelectDefaultThinking,
@@ -646,13 +660,12 @@ export function mountComposerAgentControl(
     composer.append(permissionModePicker.root);
   }
 
-  if (!toolbar) composer.append(modelPicker.root, picker.root);
+  if (!toolbar) composer.append(picker.root);
   const control = {
     composer,
     composerId,
     root: picker.root,
     picker,
-    modelPicker,
     permissionModePicker,
     nativeModelControl,
     nativePermissionModeControl,
@@ -719,13 +732,13 @@ export function renderComposerAgentControl(
     adapterState,
     switching,
     availability,
+    agentModelPaneState(modelView),
   );
   reconcileComposerNativeControls(
     control,
     pickerView.nativeModelHidden,
     switching || state.agent !== "codex",
   );
-  renderRendererModelPicker(control.modelPicker, modelView, state.agent !== "codex");
   const permissionModeVisible =
     state.agent !== "codex" &&
     permissionModeView.status !== "idle" &&
@@ -755,6 +768,5 @@ export function disposeComposerAgentControl(control: ComposerAgentControl): void
   control.usage = null;
   control.harnessCommands.dispose();
   control.permissionModePicker.dispose();
-  control.modelPicker.dispose();
   control.picker.dispose();
 }

@@ -27,7 +27,6 @@ vi.mock("../src/renderer-composer-dom.js", async (importOriginal) => {
       composerId: "composer-1",
       root: { isConnected: true, remove: vi.fn() },
       picker: { root: { isConnected: true } },
-      modelPicker: { root: { isConnected: true }, trigger: {} },
       permissionModePicker: { root: { isConnected: true } },
       nativeModelControl: null,
       nativePermissionModeControl: null,

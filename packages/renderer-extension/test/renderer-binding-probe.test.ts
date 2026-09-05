@@ -351,10 +351,8 @@ describe("Renderer Composer DOM behavior", () => {
       querySelectorAll: (selector: string) =>
         selector === 'button[aria-haspopup="menu"]' ? [replacement] : [],
     } as unknown as Element;
-    const trigger = new FakeElement();
     const control = {
       composer,
-      modelPicker: { trigger, root: { parentElement: {} } },
       nativeModelControl: { element: previous, hidden: false, ariaHidden: null },
       nativePermissionModeControl: null,
       nativeContextUsageControl: null,
@@ -429,7 +427,7 @@ describe("Renderer Composer DOM behavior", () => {
   });
 
   it("places Usage beside the native context wrapper when it is present", () => {
-    const modelRoot = {
+    const agentRoot = {
       parentElement: { kind: "model" } as unknown as HTMLElement,
     } as HTMLElement;
     const footer = {} as HTMLElement;
@@ -453,7 +451,7 @@ describe("Renderer Composer DOM behavior", () => {
         querySelectorAll: (selector: string) =>
           selector.includes("[aria-label]") ? [nativeContext] : [],
       },
-      modelPicker: { root: modelRoot, trigger: {} },
+      picker: { root: agentRoot },
       nativeModelControl: null,
       nativePermissionModeControl: null,
       nativeContextUsageControl: { element: nativeContext, hidden: false, ariaHidden: null },
@@ -472,19 +470,19 @@ describe("Renderer Composer DOM behavior", () => {
     reconcileComposerNativeControls(control, false, false);
 
     expect(placeUsage).toHaveBeenCalledWith(contextWrapper);
-    expect(placeUsage).not.toHaveBeenCalledWith(modelRoot);
+    expect(placeUsage).not.toHaveBeenCalledWith(agentRoot);
     expect(placeCredits).not.toHaveBeenCalled();
   });
 
-  it("places Usage before the Model control when native Context is not ready", () => {
+  it("places Usage before the unified pill when native Context is not ready", () => {
     const modelParent = {} as HTMLElement;
-    const modelRoot = { parentElement: modelParent } as HTMLElement;
+    const agentRoot = { parentElement: modelParent } as HTMLElement;
     const placeUsage = vi.fn();
     const placeCredits = vi.fn();
     const usageRoot = { remove: vi.fn() };
     const control = {
       composer: { querySelectorAll: () => [] },
-      modelPicker: { root: modelRoot, trigger: {} },
+      picker: { root: agentRoot },
       nativeModelControl: null,
       nativePermissionModeControl: null,
       nativeContextUsageControl: null,
@@ -502,7 +500,7 @@ describe("Renderer Composer DOM behavior", () => {
 
     reconcileComposerNativeControls(control, true, false);
 
-    expect(placeUsage).toHaveBeenCalledWith(modelRoot);
+    expect(placeUsage).toHaveBeenCalledWith(agentRoot);
     expect(placeCredits).not.toHaveBeenCalled();
   });
 
@@ -530,7 +528,7 @@ describe("Renderer Composer DOM behavior", () => {
     const placeCredits = vi.fn();
     const control = {
       composer: { querySelectorAll: () => [] },
-      modelPicker: { root: {}, trigger: {} },
+      picker: { root: {} },
       nativeModelControl: null,
       nativePermissionModeControl: null,
       nativeContextUsageControl: null,
@@ -767,14 +765,12 @@ describe("Renderer Composer DOM behavior", () => {
     };
     Object.assign(voice, { parentElement: toolbar });
     Object.assign(send, { parentElement: toolbar });
-    const modelRoot = { parentElement: toolbar, nextElementSibling: send };
     const agentRoot = { parentElement: toolbar, nextElementSibling: send };
     const control = {
       composer: { querySelectorAll: () => [] },
       sendButton: send,
       root: agentRoot,
       picker: { root: agentRoot },
-      modelPicker: { root: modelRoot, trigger: {} },
       nativeModelControl: null,
       nativePermissionModeControl: null,
       credits: {
@@ -791,7 +787,7 @@ describe("Renderer Composer DOM behavior", () => {
 
     reconcileComposerNativeControls(control, true, false);
 
-    expect(insertBefore).toHaveBeenCalledWith(modelRoot, voice);
+    expect(insertBefore).toHaveBeenCalledTimes(1);
     expect(insertBefore).toHaveBeenCalledWith(agentRoot, voice);
   });
 
@@ -815,14 +811,12 @@ describe("Renderer Composer DOM behavior", () => {
     };
     Object.assign(pause, { parentElement: toolbar });
     Object.assign(send, { parentElement: toolbar });
-    const modelRoot = { parentElement: toolbar, nextElementSibling: send };
     const agentRoot = { parentElement: toolbar, nextElementSibling: send };
     const control = {
       composer: { querySelectorAll: () => [] },
       sendButton: send,
       root: agentRoot,
       picker: { root: agentRoot },
-      modelPicker: { root: modelRoot, trigger: {} },
       nativeModelControl: null,
       nativePermissionModeControl: null,
       credits: {
@@ -839,7 +833,7 @@ describe("Renderer Composer DOM behavior", () => {
 
     reconcileComposerNativeControls(control, true, false);
 
-    expect(insertBefore).toHaveBeenCalledWith(modelRoot, pause);
+    expect(insertBefore).toHaveBeenCalledTimes(1);
     expect(insertBefore).toHaveBeenCalledWith(agentRoot, pause);
   });
 

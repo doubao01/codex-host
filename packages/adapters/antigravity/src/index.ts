@@ -9,6 +9,16 @@ export {
 export type { AntigravityAdapterOptions } from "./antigravity-adapter.js";
 export { resolveAntigravityExecutable } from "./command.js";
 export {
+  AntigravityCommandError,
+  antigravityCommandCatalog,
+  parseAntigravityCommandText,
+  runAntigravityCommand,
+} from "./commands.js";
+export {
+  projectAntigravityToolFileChanges,
+  DEFAULT_ANTIGRAVITY_FILE_CHANGE_TEXT_LIMIT,
+} from "./file-changes.js";
+export {
   antigravityAvailableThinkingOptions,
   antigravityModelArguments,
   parseAntigravityModels,

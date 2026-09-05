@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { build } from "esbuild";
 import path from "node:path";
 
+const CONTROL_ATTRIBUTE = "data-codexhost-agent-control";
+
 const repositoryRoot = path.resolve(import.meta.dirname, "../..");
 const browserExecutable = process.env.CODEXHOST_PLAYWRIGHT_EXECUTABLE_PATH;
 if (browserExecutable) test.use({ launchOptions: { executablePath: browserExecutable } });
@@ -129,8 +131,10 @@ test("a draft waits for the Desktop prewarm policy before applying its Model", a
   await page.setContent("<!doctype html><body></body>");
   await page.addScriptTag({ content: browserBundle });
 
-  const trigger = page.locator('[data-codexhost-model-control] > button[aria-haspopup="menu"]');
-  await expect(trigger).toContainText("Startup Model");
-  await expect(trigger).toBeEnabled();
-  await expect(trigger).toHaveAttribute("title", "Startup Model");
+  // The draft's Model is surfaced on the unified Agent/Model pill; the
+  // standalone Model control no longer exists.
+  const pill = page.locator(`[${CONTROL_ATTRIBUTE}] > button[aria-haspopup="menu"]`);
+  await expect(pill).toContainText("Startup Model");
+  await expect(pill).toBeEnabled();
+  await expect(pill).toHaveAttribute("title", "Agent: Pi, Model: Startup Model");
 });
