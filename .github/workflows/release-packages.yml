@@ -30,6 +30,7 @@ jobs:
       prerelease: ${{ steps.release.outputs.prerelease }}
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
+      has_npm_token: ${{ steps.npm_token.outputs.has_npm_token }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -104,6 +105,18 @@ jobs:
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "npm_tag=${npm_tag}" >> "$GITHUB_OUTPUT"
           echo "Release ${TAG}: npm tag ${npm_tag}, prerelease=${prerelease}"
+
+      - name: Detect npm publish token
+        id: npm_token
+        shell: bash
+        env:
+          NPM_TOKEN_VALUE: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN_VALUE" ]; then
+            echo "has_npm_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_npm_token=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload release notes
         uses: actions/upload-artifact@v4
@@ -216,6 +229,11 @@ jobs:
 
   publish-npm:
     name: Publish npm registry packages
+    # Optional for this repository: skipped when no NPM_TOKEN is configured,
+    # and never fatal (registry versions may already be published upstream).
+    # Note: the secrets context is not available in `if`, so the prepare job
+    # detects the token and reports it as a plain job output.
+    if: needs.prepare.outputs.has_npm_token == 'true'
     continue-on-error: true
     needs: [prepare, package]
     runs-on: ubuntu-latest
@@ -223,29 +241,21 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Skip npm publishing without a configured token
-        if: secrets.NPM_TOKEN == ''
-        run: echo "NPM_TOKEN is not configured; npm publishing is skipped for this repository."
-
       - name: Checkout release tag
-        if: secrets.NPM_TOKEN != ''
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Setup Node.js
-        if: secrets.NPM_TOKEN != ''
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           registry-url: https://registry.npmjs.org
 
       - name: Setup npm
-        if: secrets.NPM_TOKEN != ''
         run: npm install --global npm@11.8.0
 
       - name: Download npm artifacts
-        if: secrets.NPM_TOKEN != ''
         uses: actions/download-artifact@v4
         with:
           pattern: codexhost-*
@@ -253,7 +263,6 @@ jobs:
           merge-multiple: true
 
       - name: Publish platform packages and meta package
-        if: secrets.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ needs.prepare.outputs.npm_tag }}
