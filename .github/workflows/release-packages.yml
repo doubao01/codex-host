@@ -216,7 +216,6 @@ jobs:
 
   publish-npm:
     name: Publish npm registry packages
-    if: secrets.NPM_TOKEN != ''
     continue-on-error: true
     needs: [prepare, package]
     runs-on: ubuntu-latest
@@ -224,21 +223,29 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Skip npm publishing without a configured token
+        if: secrets.NPM_TOKEN == ''
+        run: echo "NPM_TOKEN is not configured; npm publishing is skipped for this repository."
+
       - name: Checkout release tag
+        if: secrets.NPM_TOKEN != ''
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Setup Node.js
+        if: secrets.NPM_TOKEN != ''
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           registry-url: https://registry.npmjs.org
 
       - name: Setup npm
+        if: secrets.NPM_TOKEN != ''
         run: npm install --global npm@11.8.0
 
       - name: Download npm artifacts
+        if: secrets.NPM_TOKEN != ''
         uses: actions/download-artifact@v4
         with:
           pattern: codexhost-*
@@ -246,6 +253,7 @@ jobs:
           merge-multiple: true
 
       - name: Publish platform packages and meta package
+        if: secrets.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ needs.prepare.outputs.npm_tag }}
