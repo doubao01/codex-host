@@ -149,7 +149,7 @@ xattr -dr com.apple.quarantine /Applications/codexhost.app
 
 > **Antigravity 当前状态：**接入仍在完善中。Turn 已显式传递 `--cwd <thread-cwd>`，将 AGY 的 workspace 对齐到 Thread 工作目录；若 AGY 仍将写入限制在 scratch 目录，可在 `~/.gemini/antigravity-cli/settings.json` 的 `permissions.allow` 中按项目预放行（详见 `docs/antigravity-integration.md`）。
 >
-> \* AGY 的 Edit Diff 由 Adapter 从成功的 `write_file` / `edit_file` 工具参数（路径 + 前后内容）确定性生成，不读取改写后的文件，也不推断删除语义。斜杠命令通过 CLI 的 print 模式（`--print=/<command>`）执行，仅限 `/help`、`/config`、`/permissions`、`/hooks`、`/usage` 等由 CLI 自身应答的只读命令。
+> \* AGY 的 Edit Diff 由 Adapter 在工具步骤结束后向 agy 的 Language Server 认领实际 Code Action 生成；若 Language Server 不可达而无法读到已应用的补丁，该步骤保持为 Tool Execution 卡片，不伪造空 File Change。斜杠命令通过 CLI 的 print 模式（`--print=/<command>`）执行，仅限 `/help`、`/config`、`/permissions`、`/hooks`、`/usage` 等由 CLI 自身应答的只读命令。
 
 ## 跨 Agent 协作
 

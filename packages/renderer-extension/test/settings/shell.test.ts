@@ -17,6 +17,7 @@ describe("Renderer settings foundation", () => {
       "Connections",
       "Agents",
       "Model Services",
+      "Session Import",
       "Updates",
       "About",
     ]);
@@ -24,6 +25,7 @@ describe("Renderer settings foundation", () => {
       "connections",
       "routes",
       "model-pool",
+      "download",
       "updates",
       "about",
     ]);
@@ -57,6 +59,7 @@ describe("Renderer settings foundation", () => {
       "connections",
       "agents",
       "model-services",
+      "session-import",
       "updates",
       "about",
     ]);

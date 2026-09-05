@@ -15,6 +15,10 @@ import { parseHostUsage, type HostUsage } from "@codexhost/harness-adapter";
 import type { StoredThreadRecordV1 } from "@codexhost/mapping-store";
 import {
   accountCreditsSnapshotSchema,
+  deepSeekModernSessionImportParamsSchema,
+  deepSeekModernSessionImportResultSchema,
+  deepSeekModernSessionListParamsSchema,
+  deepSeekModernSessionListResultSchema,
   externalThreadForkParamsSchema,
   harnessCommandCatalogSchema,
   harnessIdSchema,
@@ -25,6 +29,8 @@ import {
   harnessInspectParamsSchema,
   harnessConfigurationStateSchema,
   harnessInspectionSchema,
+  harnessWebUiOpenParamsSchema,
+  harnessWebUiOpenResultSchema,
   harnessModelSelectionStateSchema,
   harnessThinkingOptionIdSchema,
   hostItemIdSchema,
@@ -63,6 +69,7 @@ import {
   type HostTurnId,
 } from "@codexhost/shared-contracts";
 import { executeExternalThreadFork } from "./external-thread-fork.js";
+import { DeepSeekModernSessionImporter } from "./deepseek-modern-session-import.js";
 import {
   ExternalHistoryRequestError,
   listExternalItems,
@@ -468,8 +475,11 @@ export class AppServerHost {
   #nextQuestionRequestId = HOST_QUESTION_REQUEST_ID_MAX;
   #officialRequestBroker: OfficialRequestBroker;
   #delegationCoordinator: HarnessDelegationCoordinator;
+  #deepSeekModernSessionImporter: DeepSeekModernSessionImporter;
   #unregisterDelegationApi: (() => void) | undefined;
   #activeOfficialTurns = new Map<string, string>();
+  #pendingOfficialTurnStarts = new Map<unknown, string>();
+  #activeWorkDrainWaiters = new Set<() => void>();
   #pendingOfficialDelegationThreads = new Set<string>();
   #pendingOfficialTerminalStatuses = new Map<string, DelegationStartResult["status"]>();
   #officialUsageByThread = new Map<string, HostUsage>();
@@ -481,8 +491,11 @@ export class AppServerHost {
   #writer: OrderedWriter;
   #subagentThreadStatuses = new Map<string, "active" | "idle">();
   #runningSubagentsByParent = new Map<string, Set<string>>();
+  #pendingExternalCommandRequests = new Set<string>();
+  #notifiedDeepSeekSessionImports = new Set<string>();
   #closeRequested = false;
   #modelProviders: ModelProviderHost | undefined;
+  #drainActiveWorkOnInputEnd = false;
   #desktopInputEnded = false;
 
   constructor(options: AppServerHostOptions) {
@@ -516,6 +529,11 @@ export class AppServerHost {
       environment: this.#options.environment ?? process.env,
       repository: this.#repository,
       consumeOutputs: (thread) => this.#consumeHarnessOutputs(thread),
+      diagnose: (error) => this.#diagnose(error),
+    });
+    this.#deepSeekModernSessionImporter = new DeepSeekModernSessionImporter({
+      adapter: this.#externalAdapters.get("deepseek-harness"),
+      repository: this.#repository,
       diagnose: (error) => this.#diagnose(error),
     });
     this.#delegationCoordinator = new HarnessDelegationCoordinator({
@@ -553,8 +571,17 @@ export class AppServerHost {
   close(): void {
     if (this.#closeRequested) return;
     this.#closeRequested = true;
+    this.#signalActiveWorkChanged();
     this.#options.desktopInput.destroy();
     this.#terminateOfficial();
+  }
+
+  disconnect(): void {
+    if (this.#closeRequested || this.#desktopInputEnded || this.#drainActiveWorkOnInputEnd) return;
+    this.#drainActiveWorkOnInputEnd = true;
+    const desktopInput = this.#options.desktopInput as Readable & { end?: () => void };
+    if (typeof desktopInput.end === "function") desktopInput.end();
+    else desktopInput.destroy();
   }
 
   async run(): Promise<number> {
@@ -654,6 +681,7 @@ export class AppServerHost {
       }
       this.#officialRequestBroker.failAll(new Error("codexhost Host Runtime closed"));
       this.#externalRuntime.clear();
+      this.#pendingOfficialTurnStarts.clear();
       this.#routeObservationTracker.clear();
       this.#unregisterDelegationApi?.();
       this.#unregisterDelegationApi = undefined;
@@ -667,6 +695,49 @@ export class AppServerHost {
     const official = this.#official;
     if (!official) return;
     official.close();
+  }
+
+  #hasActiveWork(): boolean {
+    return (
+      this.#pendingOfficialTurnStarts.size > 0 ||
+      this.#activeOfficialTurns.size > 0 ||
+      this.#runningSubagentsByParent.size > 0 ||
+      this.#externalRuntime
+        .values()
+        .some((thread) => thread.running || thread.activeTurnId !== null)
+    );
+  }
+
+  async #waitForActiveWorkToDrain(): Promise<void> {
+    while (!this.#closeRequested && this.#hasActiveWork()) {
+      await new Promise<void>((resolve) => this.#activeWorkDrainWaiters.add(resolve));
+    }
+  }
+
+  #signalActiveWorkChanged(): void {
+    if (!this.#closeRequested && this.#hasActiveWork()) return;
+    const waiters = [...this.#activeWorkDrainWaiters];
+    this.#activeWorkDrainWaiters.clear();
+    for (const resolve of waiters) resolve();
+  }
+
+  #observeOfficialTurnStartResponse(value: JsonValue): void {
+    if (!isRecord(value) || !("id" in value)) return;
+    const threadId = this.#pendingOfficialTurnStarts.get(value.id);
+    if (!threadId) return;
+    this.#pendingOfficialTurnStarts.delete(value.id);
+    const result = isRecord(value.result) ? value.result : null;
+    const turn = result && isRecord(result.turn) ? result.turn : null;
+    if (turn && typeof turn.id === "string") {
+      this.#activeOfficialTurns.set(threadId, turn.id);
+    }
+    this.#signalActiveWorkChanged();
+  }
+
+  #forgetPendingOfficialTurnStarts(threadId: string): void {
+    for (const [requestId, pendingThreadId] of this.#pendingOfficialTurnStarts) {
+      if (pendingThreadId === threadId) this.#pendingOfficialTurnStarts.delete(requestId);
+    }
   }
 
   async #forwardDesktop(): Promise<void> {
@@ -692,6 +763,18 @@ export class AppServerHost {
       }
       if (request.method === "codexhost/harness/inspect") {
         this.#dispatchDesktopRequest(() => this.#inspectHarness(request));
+        continue;
+      }
+      if (request.method === "codexhost/harness/web-ui/open") {
+        this.#dispatchDesktopRequest(() => this.#openHarnessWebUi(request));
+        continue;
+      }
+      if (request.method === "codexhost/deepseek/modern-session/list") {
+        this.#dispatchDesktopRequest(() => this.#listDeepSeekModernSessions(request));
+        continue;
+      }
+      if (request.method === "codexhost/deepseek/modern-session/import") {
+        this.#dispatchDesktopRequest(() => this.#importDeepSeekModernSession(request));
         continue;
       }
       if (request.method === "codexhost/thread/fork") {
@@ -727,7 +810,7 @@ export class AppServerHost {
         continue;
       }
       if (request.method === "codexhost/thread/command/execute") {
-        await this.#executeThreadCommand(request);
+        this.#dispatchDesktopRequest(() => this.#executeThreadCommand(request));
         continue;
       }
       if (request.method === "codexhost/model-provider/list") {
@@ -958,8 +1041,11 @@ export class AppServerHost {
         }
         if (await this.#writeResolutionError(request, resolution)) continue;
         if (resolution.kind === "external") {
-          await this.#startExternalTurn(request, resolution.thread);
+          this.#dispatchDesktopRequest(() => this.#startExternalTurn(request, resolution.thread));
           continue;
+        }
+        if (typeof threadId === "string") {
+          this.#pendingOfficialTurnStarts.set(request.id, threadId);
         }
       }
       if (request.method === "turn/interrupt") {
@@ -1075,10 +1161,19 @@ export class AppServerHost {
           continue;
         }
       }
-      await writeFrame(official.stdin, frame);
+      try {
+        await writeFrame(official.stdin, frame);
+      } catch (error) {
+        if (request.method === "turn/start") {
+          this.#pendingOfficialTurnStarts.delete(request.id);
+          this.#signalActiveWorkChanged();
+        }
+        throw error;
+      }
     }
     this.#desktopInputEnded = true;
-    official.stdin.end();
+    if (this.#drainActiveWorkOnInputEnd) await this.#waitForActiveWorkToDrain();
+    if (!this.#closeRequested) official.stdin.end();
   }
 
   async #forwardOfficial(): Promise<void> {
@@ -1091,6 +1186,7 @@ export class AppServerHost {
         const frame = current.value;
         const following = frames.next();
         const parsed = parseJsonFrame(frame);
+        this.#observeOfficialTurnStartResponse(parsed);
         if (isRecord(parsed) && parsed.method === "account/updated")
           this.#resetOfficialUsageState();
         if (this.#officialRequestBroker.handle(parsed)) {
@@ -1134,11 +1230,15 @@ export class AppServerHost {
     const params = value.params;
     if (value.method === "turn/started" && typeof params.threadId === "string") {
       const turn = isRecord(params.turn) ? params.turn : null;
-      if (turn && typeof turn.id === "string")
+      if (turn && typeof turn.id === "string") {
+        this.#forgetPendingOfficialTurnStarts(params.threadId);
         this.#activeOfficialTurns.set(params.threadId, turn.id);
+      }
     }
     if (value.method === "turn/completed" && typeof params.threadId === "string") {
+      this.#forgetPendingOfficialTurnStarts(params.threadId);
       this.#activeOfficialTurns.delete(params.threadId);
+      this.#signalActiveWorkChanged();
       const delegation = await this.#repository.getDelegationByChild(
         hostThreadIdSchema.parse(params.threadId),
       );
@@ -1429,6 +1529,7 @@ export class AppServerHost {
       };
     } catch (error) {
       this.#activeOfficialTurns.delete(threadId);
+      this.#signalActiveWorkChanged();
       await this.#officialRequestBroker
         .request("thread/delete", { threadId })
         .catch(() => undefined);
@@ -1774,6 +1875,73 @@ export class AppServerHost {
     );
   }
 
+  async #openHarnessWebUi(request: JsonRpcRequest): Promise<void> {
+    const params = harnessWebUiOpenParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Harness Web UI params"));
+      return;
+    }
+    const adapter = [...this.#externalAdapters].find(
+      ([harnessId]) => harnessId === params.data.harnessId,
+    )?.[1];
+    const webUi = adapter?.webUi;
+    if (!webUi) {
+      await this.#writer.json(rpcError(request, -32092, "Harness Web UI is unavailable"));
+      return;
+    }
+    try {
+      const result = await webUi.open();
+      if (!result.ok) {
+        await this.#writer.json(rpcError(request, -32092, "Harness Web UI could not be opened"));
+        return;
+      }
+      await this.#writer.json(
+        rpcEnvelope(request, { result: harnessWebUiOpenResultSchema.parse({}) }),
+      );
+    } catch {
+      await this.#writer.json(rpcError(request, -32092, "Harness Web UI could not be opened"));
+    }
+  }
+
+  async #listDeepSeekModernSessions(request: JsonRpcRequest): Promise<void> {
+    const params = deepSeekModernSessionListParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid DeepSeek Session list params"));
+      return;
+    }
+    const outcome = await this.#deepSeekModernSessionImporter.list();
+    if (!outcome.ok) {
+      await this.#writer.json(rpcError(request, outcome.error.code, outcome.error.message));
+      return;
+    }
+    const result = deepSeekModernSessionListResultSchema.safeParse({
+      candidates: outcome.candidates,
+    });
+    if (!result.success) {
+      await this.#writer.json(rpcError(request, -32076, "DeepSeek Session list is invalid"));
+      return;
+    }
+    await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result.data) }));
+  }
+
+  async #importDeepSeekModernSession(request: JsonRpcRequest): Promise<void> {
+    const params = deepSeekModernSessionImportParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid DeepSeek Session import params"));
+      return;
+    }
+    const outcome = await this.#deepSeekModernSessionImporter.import(params.data.nativeSessionId);
+    if (!outcome.ok) {
+      await this.#writer.json(rpcError(request, outcome.error.code, outcome.error.message));
+      return;
+    }
+    const notify = !this.#notifiedDeepSeekSessionImports.has(outcome.threadId);
+    if (notify) this.#notifiedDeepSeekSessionImports.add(outcome.threadId);
+    const result = deepSeekModernSessionImportResultSchema.parse({ threadId: outcome.threadId });
+    await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+    if (notify) await this.#notifyExternalThreadStarted(outcome.thread);
+  }
+
   async #inspectThread(request: JsonRpcRequest): Promise<void> {
     const params = threadInspectionParamsSchema.safeParse(request.params);
     if (!params.success) {
@@ -2009,49 +2177,54 @@ export class AppServerHost {
       return;
     }
     const thread = resolution.thread;
-    if (thread.running) {
+    if (thread.running || this.#pendingExternalCommandRequests.has(thread.id)) {
       await this.#writer.json(
         rpcError(request, -32072, "External Thread already has an active operation"),
       );
       return;
     }
-    const commands = thread.session.commands;
-    if (!commands) {
-      await this.#writer.json(
-        rpcError(request, -32078, "External Harness does not expose commands"),
-      );
-      return;
-    }
-    const catalog = await commands.list();
-    if (!catalog.ok) {
-      await this.#writer.json(rpcError(request, -32078, catalog.error.message));
-      return;
-    }
-    if (!catalog.value.commands.some(({ id }) => id === params.data.commandId)) {
-      await this.#writer.json(
-        rpcError(
-          request,
-          -32078,
-          `External Harness does not expose command '${params.data.commandId}'`,
-        ),
-      );
-      return;
-    }
-
+    this.#pendingExternalCommandRequests.add(thread.id);
     try {
-      await this.#startExternalCommand(
-        request,
-        thread,
-        params.data.commandId,
-        params.data.arguments,
-        params.data.turnId,
-        "command",
-      );
-    } catch (error) {
-      this.#diagnose(error);
-      await this.#writer.json(
-        rpcError(request, -32073, `External Harness command failed: ${errorMessage(error)}`),
-      );
+      const commands = thread.session.commands;
+      if (!commands) {
+        await this.#writer.json(
+          rpcError(request, -32078, "External Harness does not expose commands"),
+        );
+        return;
+      }
+      const catalog = await commands.list();
+      if (!catalog.ok) {
+        await this.#writer.json(rpcError(request, -32078, catalog.error.message));
+        return;
+      }
+      const descriptor = catalog.value.commands.find(({ id }) => id === params.data.commandId);
+      if (!descriptor) {
+        await this.#writer.json(
+          rpcError(
+            request,
+            -32078,
+            `External Harness does not expose command '${params.data.commandId}'`,
+          ),
+        );
+        return;
+      }
+      try {
+        await this.#startExternalCommand(
+          request,
+          thread,
+          params.data.commandId,
+          params.data.arguments,
+          params.data.turnId,
+          "command",
+        );
+      } catch (error) {
+        this.#diagnose(error);
+        await this.#writer.json(
+          rpcError(request, -32073, `External Harness command failed: ${errorMessage(error)}`),
+        );
+      }
+    } finally {
+      this.#pendingExternalCommandRequests.delete(thread.id);
     }
   }
 
@@ -2106,6 +2279,7 @@ export class AppServerHost {
       thread.responseGates.delete(turnId);
       thread.ephemeralTurnIds.delete(turnId);
       gate.resolve();
+      this.#signalActiveWorkChanged();
       throw error;
     }
     if (!result.ok) {
@@ -2115,6 +2289,7 @@ export class AppServerHost {
       thread.responseGates.delete(turnId);
       thread.ephemeralTurnIds.delete(turnId);
       gate.resolve();
+      this.#signalActiveWorkChanged();
       await this.#writer.json(rpcError(request, -32073, result.error.message));
       return;
     }
@@ -2932,7 +3107,10 @@ export class AppServerHost {
     thread.running = true;
     thread.activeTurnId = turnId;
     thread.projectedTurns.set(turnId, projection);
-    thread.responseGates.set(turnId, { promise: Promise.resolve(), resolve: () => undefined });
+    thread.responseGates.set(turnId, {
+      promise: Promise.resolve(),
+      resolve: () => undefined,
+    });
     const result = await thread.session.execute({
       type: "turn.start",
       turnId,
@@ -2943,12 +3121,13 @@ export class AppServerHost {
       thread.activeTurnId = null;
       thread.projectedTurns.delete(turnId);
       thread.responseGates.delete(turnId);
+      this.#signalActiveWorkChanged();
       throw new Error(result.error.message);
     }
   }
 
   async #startExternalTurn(request: JsonRpcRequest, thread: ExternalThread): Promise<void> {
-    if (thread.running) {
+    if (thread.running || this.#pendingExternalCommandRequests.has(thread.id)) {
       await this.#writer.json(
         rpcError(request, -32072, "External Thread already has an active Turn"),
       );
@@ -2977,37 +3156,57 @@ export class AppServerHost {
       await this.#writer.json(rpcError(request, -32602, errorMessage(error)));
       return;
     }
+    const commandText = text.trimStart();
     if (thread.session.commands) {
-      const catalog = await thread.session.commands.list();
-      if (!catalog.ok) {
-        await this.#writer.json(rpcError(request, -32073, catalog.error.message));
-        return;
-      }
-      const matched = catalog.value.commands
-        .toSorted((left, right) => right.invocation.length - left.invocation.length)
-        .find((command) => {
-          if (text === command.invocation) return true;
-          return command.argumentMode === "text" && text.startsWith(`${command.invocation} `);
-        });
-      if (matched) {
-        const argumentText = text.slice(matched.invocation.length).trimStart();
-        try {
-          await this.#startExternalCommand(
-            request,
-            thread,
-            matched.id,
-            argumentText.length > 0 ? { text: argumentText } : undefined,
-            undefined,
-            "turn",
-          );
-        } catch (error) {
-          this.#diagnose(error);
-          await this.#writer.json(
-            rpcError(request, -32073, `External Harness command failed: ${errorMessage(error)}`),
-          );
+      this.#pendingExternalCommandRequests.add(thread.id);
+      try {
+        const catalog = await thread.session.commands.list();
+        if (!catalog.ok) {
+          await this.#writer.json(rpcError(request, -32073, catalog.error.message));
+          return;
         }
-        return;
+        const matched = catalog.value.commands
+          .toSorted((left, right) => right.invocation.length - left.invocation.length)
+          .find((command) => {
+            if (commandText === command.invocation) return true;
+            return (
+              command.argumentMode === "text" && commandText.startsWith(`${command.invocation} `)
+            );
+          });
+        if (matched) {
+          const argumentText = commandText.slice(matched.invocation.length).trimStart();
+          try {
+            await this.#startExternalCommand(
+              request,
+              thread,
+              matched.id,
+              argumentText.length > 0 ? { text: argumentText } : undefined,
+              undefined,
+              "turn",
+            );
+          } catch (error) {
+            this.#diagnose(error);
+            await this.#writer.json(
+              rpcError(request, -32073, `External Harness command failed: ${errorMessage(error)}`),
+            );
+          }
+          return;
+        }
+        if (/^\/[^\s/]+(?:\s|$)/u.test(commandText)) {
+          await this.#writer.json(
+            rpcError(request, -32078, "External Harness does not expose the requested command"),
+          );
+          return;
+        }
+      } finally {
+        this.#pendingExternalCommandRequests.delete(thread.id);
       }
+    }
+    if (thread.running || thread.activeTurnId) {
+      await this.#writer.json(
+        rpcError(request, -32072, "External Thread already has an active Turn"),
+      );
+      return;
     }
     const turnId = hostTurnIdSchema.parse(randomUUID());
     const startedAtMs = Date.now();
@@ -3036,6 +3235,7 @@ export class AppServerHost {
       thread.projectedTurns.delete(turnId);
       thread.responseGates.delete(turnId);
       gate.resolve();
+      this.#signalActiveWorkChanged();
       await this.#writer.json(rpcError(request, -32073, result.error.message));
       return;
     }
@@ -3064,12 +3264,22 @@ export class AppServerHost {
       return;
     }
     const turnId = thread.activeTurnId;
-    const gate = turnProjectionGate();
+    const cancellationGate = turnProjectionGate();
+    const gate: TurnProjectionGate = {
+      promise: Promise.all([
+        thread.responseGates.get(turnId)?.promise ?? Promise.resolve(),
+        cancellationGate.promise,
+      ]).then(() => undefined),
+      resolve: cancellationGate.resolve,
+    };
     thread.responseGates.set(turnId, gate);
     const result = await thread.session.execute({ type: "turn.cancel", turnId });
     if (!result.ok) {
-      gate.resolve();
-      await this.#writer.json(rpcError(request, -32074, result.error.message));
+      try {
+        await this.#writer.json(rpcError(request, -32074, result.error.message));
+      } finally {
+        gate.resolve();
+      }
       return;
     }
     try {
@@ -3230,6 +3440,7 @@ export class AppServerHost {
           turnId: event.turnId,
           cwd: thread.cwd,
           startedAtMs: Date.now(),
+          initialInput: event.input,
         }),
       };
       thread.running = true;
@@ -3292,6 +3503,7 @@ export class AppServerHost {
       thread.activeTurnId = null;
       thread.projectedTurns.delete(event.turnId);
       thread.responseGates.delete(event.turnId);
+      this.#signalActiveWorkChanged();
       const delegation = await this.#repository.getDelegationByChild(thread.record.hostThreadId);
       if (delegation) {
         const status =
@@ -3458,6 +3670,7 @@ export class AppServerHost {
     if (!running) return;
     running.delete(childThreadId);
     if (running.size === 0) this.#runningSubagentsByParent.delete(parentThreadId);
+    this.#signalActiveWorkChanged();
   }
 
   #hasRunningSubagents(parentThreadId: string): boolean {

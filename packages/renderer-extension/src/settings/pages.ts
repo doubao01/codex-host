@@ -26,6 +26,11 @@ import {
   createModelServicesSettingsPage,
   type RendererModelProviderClient,
 } from "./model-services-page.js";
+import {
+  createDeepSeekSessionImportSettingsPage,
+  type RendererDeepSeekSessionImportClient,
+  type RendererImportedThreadOpener,
+} from "./deepseek-session-import-page.js";
 import { createReleaseNotesElement } from "./release-notes.js";
 
 export type {
@@ -72,6 +77,7 @@ export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = [
   "connections",
   "agents",
   "model-services",
+  "session-import",
   "updates",
   "about",
 ] as const;
@@ -577,12 +583,16 @@ export function createDefaultRendererSettingsPages(
   messages: RendererSettingsMessages = DEFAULT_RENDERER_SETTINGS_MESSAGES,
   getUpdateClient: () => RendererUpdateClient | null = () => null,
   getDiagnostics: () => RendererConnectionDiagnostics | null = () => null,
+  getSessionImportClient: () => RendererDeepSeekSessionImportClient | null = () => null,
+  openImportedThread: RendererImportedThreadOpener = () =>
+    Promise.reject(new Error("Imported Thread navigation is unavailable")),
   getModelProviderClient: () => RendererModelProviderClient | null = () => null,
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createConnectionsSettingsPage(messages, getDiagnostics),
     createAgentsSettingsPage(messages),
     createModelServicesSettingsPage(messages, getModelProviderClient),
+    createDeepSeekSessionImportSettingsPage(messages, getSessionImportClient, openImportedThread),
     updatesPage(messages, getUpdateClient),
     aboutPage(messages),
   ]);
@@ -592,6 +602,8 @@ export function createDefaultRendererSettingsRegistry(
   messages: RendererSettingsMessages = DEFAULT_RENDERER_SETTINGS_MESSAGES,
   getUpdateClient: () => RendererUpdateClient | null = () => null,
   getDiagnostics: () => RendererConnectionDiagnostics | null = () => null,
+  getSessionImportClient: () => RendererDeepSeekSessionImportClient | null = () => null,
+  openImportedThread?: RendererImportedThreadOpener,
   getModelProviderClient: () => RendererModelProviderClient | null = () => null,
 ): RendererSettingsPageRegistry {
   return createRendererSettingsPageRegistry(
@@ -599,6 +611,8 @@ export function createDefaultRendererSettingsRegistry(
       messages,
       getUpdateClient,
       getDiagnostics,
+      getSessionImportClient,
+      openImportedThread,
       getModelProviderClient,
     ),
   );

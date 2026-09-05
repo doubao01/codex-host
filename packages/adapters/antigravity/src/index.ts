@@ -5,6 +5,7 @@ export {
   AntigravityAdapter,
   parseAntigravityContextUsage,
   permissionDeniedTurnError,
+  resolveAntigravityContextWindow,
 } from "./antigravity-adapter.js";
 export type { AntigravityAdapterOptions } from "./antigravity-adapter.js";
 export { resolveAntigravityExecutable } from "./command.js";
@@ -35,6 +36,21 @@ export {
   parseAntigravityStreamLine,
 } from "./stream-events.js";
 export type { AntigravityStreamEvent } from "./stream-events.js";
+export {
+  codeActionFileChange,
+  parseAntigravityCodeActions,
+  requestAntigravityTrajectorySteps,
+} from "./code-action-diff.js";
+export type { AntigravityCodeAction } from "./code-action-diff.js";
+export {
+  compactToolName,
+  completeAntigravityToolItem,
+  displayPath,
+  isAntigravityFileMutatingTool,
+  startAntigravityToolItem,
+  synthesizeAntigravityCommand,
+  toolTargetFile,
+} from "./tool-projection.js";
 
 export const packageMetadata = {
   name: "@codexhost/adapter-antigravity",
