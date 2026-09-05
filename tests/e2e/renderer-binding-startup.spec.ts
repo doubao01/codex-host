@@ -137,4 +137,15 @@ test("a draft waits for the Desktop prewarm policy before applying its Model", a
   await expect(pill).toContainText("Startup Model");
   await expect(pill).toBeEnabled();
   await expect(pill).toHaveAttribute("title", "Agent: Pi, Model: Startup Model");
+
+  // Opening the unified pane must surface the Agent options in the left
+  // column and the Model rows in the right pane (regression: the Agent
+  // column was mounted empty and the popover stayed at the Agent-only width,
+  // clipping the pane).
+  await pill.click();
+  const menu = page.locator(`[${CONTROL_ATTRIBUTE}] [popover]`);
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('button[data-agent="codex"]')).toBeVisible();
+  await expect(menu.locator('button[data-agent="pi"]')).toBeVisible();
+  await expect(menu.locator('button[role="menuitemradio"]')).toHaveCount(3);
 });

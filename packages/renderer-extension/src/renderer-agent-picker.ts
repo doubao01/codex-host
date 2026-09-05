@@ -181,6 +181,10 @@ function setMenuPosition(control: RendererAgentPickerControl): void {
   const rawWindowZoom = getComputedStyle(document.documentElement)
     .getPropertyValue("--codex-window-zoom")
     .trim();
+  // The menu box must track the two-pane body: it starts at the Agent column
+  // width and widens when the Model pane becomes visible, so the pane is
+  // never clipped by a stale narrow popover.
+  control.menu.style.width = `${effectiveMenuWidth(control)}px`;
   const placement = rendererAgentMenuPlacement(
     rect,
     { width: window.innerWidth, height: window.innerHeight },
@@ -781,6 +785,10 @@ export function mountRendererAgentPicker(
   regroup();
   const unsubscribeGroup = groupPreference.subscribe(regroup);
 
+  // The left column holds the Agent list (Main group, More fold, and the
+  // Manage/CTA affordances). The Model pane is mounted to the right of it and
+  // widens the popover when it has rows to show.
+  mainColumn.append(mainGroup, moreToggle, morePanel, cta);
   menuBody.append(modelPane, mainColumn);
   menu.append(menuBody);
   root.append(trigger, menu);
@@ -892,8 +900,6 @@ export function renderRendererAgentPicker(
     "aria-label",
     state.phase === "locked" ? `Agent: ${view.label}` : `Select Agent, current ${view.label}`,
   );
-  control.trigger.title =
-    state.phase === "locked" ? `Agent: ${view.label} (locked)` : `Agent: ${view.label}`;
   control.trigger.style.cursor = control.trigger.disabled ? "not-allowed" : "pointer";
   control.trigger.style.opacity = control.trigger.disabled && !switching ? "0.72" : "1";
   control.iconSlot.style.display = switching ? "none" : "inline-flex";
@@ -919,6 +925,7 @@ export function renderRendererAgentPicker(
     "aria-label",
     `Agent: ${view.label}${pillText ? `, Model: ${pillText}` : ""}`,
   );
+  control.trigger.title = `Agent: ${view.label}${pillText ? `, Model: ${pillText}` : ""}`;
 
   for (const agent of control.agents) {
     const option = control.options[agent];
